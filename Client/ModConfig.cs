@@ -100,7 +100,7 @@ internal sealed class ModConfig
             "Corner Peek (Experimental)",
             true,
             "Rotates the weapon toward nearby cover edges while not aiming. This never runs in ADS.");
-        CornerPeekStrength = BindRange(config, "12.5 - Experimental Weapon Motion", "Corner Peek Strength (Experimental)", 1.30216f, 0f, 2f,
+        CornerPeekStrength = BindRange(config, "12.5 - Experimental Weapon Motion", "Corner Peek Strength (Experimental)", 0.504038f, 0f, 2f,
             "Strength of the automatic weapon yaw and cant near cover. 0 = off. This never affects ADS.");
 
         OverlayEnabled = config.Bind(
@@ -121,24 +121,24 @@ internal sealed class ModConfig
             "Strength of the wide-angle curve near the screen edges. 0 = off.");
         FisheyeEdgeCrop = BindRange(config, "14.1 - Bodycam Lens", "Fisheye Edge Crop", 1.04f, 1f, 1.25f,
             "Slightly zooms the image to hide stretched outer edges.");
-        ChromaticAberrationStrength = BindRange(config, "14.1 - Bodycam Lens", "Chromatic Aberration", 0.3020657f, 0f, 1f,
+        ChromaticAberrationStrength = BindRange(config, "14.1 - Bodycam Lens", "Chromatic Aberration", 0.2973709f, 0f, 1f,
             "Amount of color separation near the screen edges. 0 = off.");
         HighlightBloomStrength = BindRange(config, "14.1 - Bodycam Lens", "Highlight Bloom", 0.7f, 0f, 2f,
             "Soft glow around very bright areas. 0 = off.");
-        NearFocusBlurStrength = BindRange(config, "14.1 - Bodycam Lens", "Near Weapon Blur", 0.14f, 0f, 1f,
+        NearFocusBlurStrength = BindRange(config, "14.1 - Bodycam Lens", "Near Weapon Blur", 0.2010329f, 0f, 1f,
             "Blurs the nearby weapon slightly when you are not aiming. 0 = off.");
         MotionBlurStrength = BindRange(config, "14.1 - Bodycam Lens", "Motion Blur", 0.3f, 0f, 1f,
             "Blur during fast camera movement. 0 = off.");
-        CameraExposure = BindRange(config, "14.1 - Bodycam Lens", "Camera Exposure", 0.08f, -1f, 1f,
+        CameraExposure = BindRange(config, "14.1 - Bodycam Lens", "Camera Exposure", 0.3523005f, -1f, 1f,
             "Camera image brightness. Positive = brighter. Negative = darker. 0 = Tarkov default.");
-        EdgeVignetteStrength = BindRange(config, "14.1 - Bodycam Lens", "Edge Vignette", 0.3321127f, 0f, 0.45f,
+        EdgeVignetteStrength = BindRange(config, "14.1 - Bodycam Lens", "Edge Vignette", 0.3067606f, 0f, 0.45f,
             "Adds a rounded black lens edge without darkening the image centre. 0 = off.");
         RainLensEffectsEnabled = config.Bind(
             "14.2 - Lens Weather",
             "Rain on Lens",
             true,
             "Shows Tarkov's native visor-quality water drops on the camera during rain.");
-        LensSmearStrength = BindRange(config, "14.3 - Lens Surface", "Milky Lens Smear Visibility", 0.18f, 0f, 1f,
+        LensSmearStrength = BindRange(config, "14.3 - Lens Surface", "Milky Lens Smear Visibility", 0.4006573f, 0f, 1f,
             "Changes only the visibility of the permanent lens smears. 0% = invisible. 100% = fully visible. No blur or image distortion is added.");
         OverlayScale = BindRange(config, "14 - Bodycam Overlay", "HUD Scale", 0.7230048f, 0.6f, 1.6f,
             "Size of all bodycam HUD elements.");
@@ -176,9 +176,9 @@ internal sealed class ModConfig
             "Moves the magazine label sideways. Positive = right. Negative = left.");
         MagazineCheckLabelOffsetY = BindRange(config, "14.6 - Magazine Check Label", "Offset Y", -74f, -300f, 300f,
             "Moves the magazine label vertically. Positive = down. Negative = up.");
-        MagazineCheckLabelScale = BindRange(config, "14.6 - Magazine Check Label", "Window Scale", 1f, 0.6f, 1.8f,
+        MagazineCheckLabelScale = BindRange(config, "14.6 - Magazine Check Label", "Window Scale", 1.653521f, 0.6f, 1.8f,
             "Changes the size of the magazine-check window and its text.");
-        MagazineCheckBackgroundOpacity = BindRange(config, "14.6 - Magazine Check Label", "Background Opacity", 0.72f, 0f, 1f,
+        MagazineCheckBackgroundOpacity = BindRange(config, "14.6 - Magazine Check Label", "Background Opacity", 0.04863853f, 0f, 1f,
             "Changes how dark the magazine-check window is. 0 = transparent. 1 = solid.");
 
         FaceCensorEnabled = config.Bind(
@@ -186,11 +186,11 @@ internal sealed class ModConfig
             "Enabled",
             true,
             "Covers nearby visible faces with a privacy mosaic during normal raid gameplay. Hidden in inventory, looting and menus. Includes corpses.");
-        FaceCensorSize = BindRange(config, "14.7 - Censorship", "Mosaic Size", 1.2f, 0.75f, 1.8f,
+        FaceCensorSize = BindRange(config, "14.7 - Censorship", "Mosaic Size", 0.9556338f, 0.75f, 1.8f,
             "Changes how much of the face the square mosaic covers.");
         CensorshipMaximumDistance = BindRange(config, "14.7 - Censorship", "Maximum Distance", 80f, 10f, 120f,
             "Farthest distance in metres at which visible faces are censored.");
-        CensorshipBlockCount = BindRange(config, "14.7 - Censorship", "Mosaic Blocks", 8f, 5f, 18f,
+        CensorshipBlockCount = BindRange(config, "14.7 - Censorship", "Mosaic Blocks", 11.23474f, 5f, 18f,
             "Pixel blocks across the mosaic at close range. Lower = larger blocks. The block count automatically decreases with distance.");
 
         DamageEffectsEnabled = config.Bind(
@@ -198,7 +198,7 @@ internal sealed class ModConfig
             "Enabled",
             true,
             "Shows up to two neutral faceshield-style impact marks on the bodycam lens after combat hits.");
-        LensDamageStrength = BindRange(config, "15 - Bodycam Damage Effects", "Lens Cracks Visibility", 0.45f, 0f, 1f,
+        LensDamageStrength = BindRange(config, "15 - Bodycam Damage Effects", "Lens Cracks Visibility", 0.1025821f, 0f, 1f,
             "Changes how visible the two persistent neutral impact marks are. 0 = off.");
     }
 

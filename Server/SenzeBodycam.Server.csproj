@@ -9,6 +9,9 @@
     <FileVersion>1.0.0.0</FileVersion>
     <Authors>Senze</Authors>
     <Description>Server-side update notification for Senze Bodycam.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/notSENZE/Bodycam</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>

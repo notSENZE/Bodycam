@@ -10,6 +10,9 @@
     <Company>Senze</Company>
     <Product>SenzeBodycam</Product>
     <Description>Body-mounted first-person camera and recording overlay for SPT 4.1.6.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/notSENZE/Bodycam</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <LangVersion>latest</LangVersion>

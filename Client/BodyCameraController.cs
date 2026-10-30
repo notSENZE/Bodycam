@@ -94,6 +94,9 @@ internal sealed class BodyCameraController
     private bool _colorGradingWasActive;
     private bool _colorGradingWasEnabled;
     private float _colorGradingPostExposure;
+    private float _colorGradingSaturation;
+    private float _colorGradingContrast;
+    private Vector4 _colorGradingGamma;
 
     internal Player OverlayPlayer => _player;
 
@@ -122,13 +125,22 @@ internal sealed class BodyCameraController
 
     internal void UpdateInput()
     {
-        if (!_settings.ModEnabled.Value || !ShortcutInput.IsDown(_settings.ToggleBodyCameraKey.Value))
+        if (!_settings.ModEnabled.Value)
         {
             return;
         }
 
-        _settings.BodyCameraEnabled.Value = !_settings.BodyCameraEnabled.Value;
-        _logger.LogInfo($"Bodycam {(_settings.BodyCameraEnabled.Value ? "enabled" : "disabled")}.");
+        if (ShortcutInput.IsDown(_settings.ToggleBodyCameraKey.Value))
+        {
+            _settings.BodyCameraEnabled.Value = !_settings.BodyCameraEnabled.Value;
+            _logger.LogInfo($"Bodycam {(_settings.BodyCameraEnabled.Value ? "enabled" : "disabled")}.");
+        }
+
+        if (ShortcutInput.IsDown(_settings.ToggleLowLightModeKey.Value))
+        {
+            _settings.LowLightModeEnabled.Value = !_settings.LowLightModeEnabled.Value;
+            _logger.LogInfo($"Low-Light Mode {(_settings.LowLightModeEnabled.Value ? "enabled" : "disabled")}.");
+        }
     }
 
     internal void Apply(PlayerCameraController cameraController)
@@ -523,7 +535,10 @@ internal sealed class BodyCameraController
         }
 
         TrackBloom(bloom);
-        var strength = _settings.HighlightBloomStrength.Value;
+        var lowLightGain = GetLowLightGain();
+        var lowLightBlend = Mathf.Clamp01(lowLightGain / 1.5f);
+        var bodycamBloom = _settings.HighlightBloomStrength.Value;
+        var strength = Mathf.Lerp(bodycamBloom, bodycamBloom * 0.72f, lowLightBlend);
         if (!_settings.ModEnabled.Value || !_settings.BodyCameraEnabled.Value || strength <= 0.001f)
         {
             RestoreBloom(false);
@@ -533,9 +548,9 @@ internal sealed class BodyCameraController
         bloom.active = true;
         bloom.enabled.value = true;
         bloom.intensity.value = strength;
-        bloom.threshold.value = 1.08f;
+        bloom.threshold.value = Mathf.Lerp(1.08f, 1.18f, lowLightBlend);
         bloom.softKnee.value = 0.55f;
-        bloom.diffusion.value = 5f;
+        bloom.diffusion.value = Mathf.Lerp(5f, 4.5f, lowLightBlend);
         bloom.fastMode.value = true;
     }
 
@@ -598,8 +613,11 @@ internal sealed class BodyCameraController
         }
 
         TrackGrain(grain);
-        var strength = Mathf.Clamp01(_settings.SensorNoiseStrength.Value);
-        if (!_settings.ModEnabled.Value || !_settings.BodyCameraEnabled.Value || strength <= 0.001f)
+        var lowLightNoise = _settings.LowLightModeEnabled.Value
+            ? Mathf.Clamp01(_settings.LowLightNoiseStrength.Value)
+            : 0f;
+        var intensity = Mathf.Clamp01(_settings.SensorNoiseStrength.Value * 0.55f + lowLightNoise * 0.7f);
+        if (!_settings.ModEnabled.Value || !_settings.BodyCameraEnabled.Value || intensity <= 0.001f)
         {
             RestoreGrain(false);
             return;
@@ -608,9 +626,9 @@ internal sealed class BodyCameraController
         grain.active = true;
         grain.enabled.value = true;
         grain.colored.value = false;
-        grain.intensity.value = strength * 0.55f;
-        grain.size.value = 1.1f;
-        grain.lumContrib.value = 0.65f;
+        grain.intensity.value = intensity;
+        grain.size.value = Mathf.Lerp(1.1f, 1.45f, lowLightNoise);
+        grain.lumContrib.value = Mathf.Lerp(0.65f, 0.3f, lowLightNoise);
     }
 
     private void ApplyColorGrading(PostProcessLayer postProcessLayer)
@@ -622,7 +640,10 @@ internal sealed class BodyCameraController
         }
 
         TrackColorGrading(colorGrading);
-        var exposure = _settings.CameraExposure.Value;
+        var lowLightGain = GetLowLightGain();
+        var lowLightBlend = Mathf.Clamp01(lowLightGain / 1.5f);
+        var gainBlend = Mathf.Clamp01(lowLightGain / 4f);
+        var exposure = _settings.CameraExposure.Value + lowLightGain * 0.1f;
         if (!_settings.ModEnabled.Value
             || !_settings.BodyCameraEnabled.Value
             || Mathf.Abs(exposure) <= 0.001f)
@@ -634,6 +655,21 @@ internal sealed class BodyCameraController
         colorGrading.active = true;
         colorGrading.enabled.value = true;
         colorGrading.postExposure.value = _colorGradingPostExposure + exposure;
+        colorGrading.saturation.value = _colorGradingSaturation - lowLightBlend * 88f;
+        colorGrading.contrast.value = _colorGradingContrast - lowLightBlend * 6f;
+        var gamma = _colorGradingGamma;
+        gamma.w += gainBlend * 0.55f;
+        colorGrading.gamma.value = gamma;
+    }
+
+    private float GetLowLightGain()
+    {
+        if (!_settings.LowLightModeEnabled.Value)
+        {
+            return 0f;
+        }
+
+        return Mathf.Clamp(_settings.LowLightGain.Value, 0f, 4f);
     }
 
     private void TrackLensDistortion(LensDistortion lensDistortion)
@@ -901,6 +937,9 @@ internal sealed class BodyCameraController
         _colorGradingWasActive = colorGrading.active;
         _colorGradingWasEnabled = colorGrading.enabled.value;
         _colorGradingPostExposure = colorGrading.postExposure.value;
+        _colorGradingSaturation = colorGrading.saturation.value;
+        _colorGradingContrast = colorGrading.contrast.value;
+        _colorGradingGamma = colorGrading.gamma.value;
     }
 
     private void RestoreColorGrading(bool forget)
@@ -910,6 +949,9 @@ internal sealed class BodyCameraController
             _colorGrading.active = _colorGradingWasActive;
             _colorGrading.enabled.value = _colorGradingWasEnabled;
             _colorGrading.postExposure.value = _colorGradingPostExposure;
+            _colorGrading.saturation.value = _colorGradingSaturation;
+            _colorGrading.contrast.value = _colorGradingContrast;
+            _colorGrading.gamma.value = _colorGradingGamma;
         }
 
         if (forget)

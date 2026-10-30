@@ -19,6 +19,11 @@ internal sealed class ModConfig
     internal ConfigEntry<bool> CornerPeekEnabled { get; }
     internal ConfigEntry<float> CornerPeekStrength { get; }
 
+    internal ConfigEntry<bool> LowLightModeEnabled { get; }
+    internal ConfigEntry<KeyboardShortcut> ToggleLowLightModeKey { get; }
+    internal ConfigEntry<float> LowLightGain { get; }
+    internal ConfigEntry<float> LowLightNoiseStrength { get; }
+
     internal ConfigEntry<bool> OverlayEnabled { get; }
     internal ConfigEntry<float> SensorNoiseStrength { get; }
     internal ConfigEntry<float> SignalFlickerStrength { get; }
@@ -102,6 +107,21 @@ internal sealed class ModConfig
             "Rotates the weapon toward nearby cover edges while not aiming. This never runs in ADS.");
         CornerPeekStrength = BindRange(config, "12.5 - Experimental Weapon Motion", "Corner Peek Strength (Experimental)", 0.504038f, 0f, 2f,
             "Strength of the automatic weapon yaw and cant near cover. 0 = off. This never affects ADS.");
+
+        LowLightModeEnabled = config.Bind(
+            "13 - Low-Light Mode",
+            "Enabled",
+            false,
+            "Brightens dark scenes like a digital bodycam sensor. This is not green night vision.");
+        ToggleLowLightModeKey = config.Bind(
+            "13 - Low-Light Mode",
+            "Toggle Key",
+            new KeyboardShortcut(KeyCode.F9),
+            "Press this key to turn Low-Light Mode on or off. The choice is saved.");
+        LowLightGain = BindRange(config, "13 - Low-Light Mode", "Digital Gain", 2.24f, 0f, 4f,
+            "Raises the whole image like a monitor gamma control. Higher values reveal more dark detail and add slightly more grain.");
+        LowLightNoiseStrength = BindRange(config, "13 - Low-Light Mode", "Noise Strength", 0.75f, 0f, 1f,
+            "Adds moving monochrome sensor grain while Low-Light Mode is active. 0 = no extra grain. 1 = very strong grain.");
 
         OverlayEnabled = config.Bind(
             "14 - Bodycam Overlay",

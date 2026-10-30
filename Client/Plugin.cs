@@ -10,7 +10,7 @@ public sealed class Plugin : BaseUnityPlugin
 {
     internal const string PluginGuid = "com.senze.bodycam";
     internal const string PluginName = "Senze - Bodycam";
-    internal const string PluginVersion = "1.0.0";
+    internal const string PluginVersion = "1.1.0";
 
     private Harmony _harmony;
     private ModConfig _settings;

@@ -10,7 +10,7 @@ namespace SenzeBodycam.Server;
 [Injectable(TypePriority = OnLoadOrder.PostLoad + 1)]
 public sealed class UpdateNotifier(ISptLogger<UpdateNotifier> logger) : IOnLoad
 {
-    private const string CurrentVersionText = "1.0.0";
+    private const string CurrentVersionText = "1.1.0";
     private const string LatestReleaseUrl = "https://api.github.com/repos/notSENZE/Bodycam/releases/latest";
     private const string RepositoryUrl = "https://github.com/notSENZE/Bodycam";
 

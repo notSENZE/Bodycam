@@ -92,6 +92,15 @@ internal sealed class BodycamOverlay
     private float _nextNoiseUpdate;
     private float _nextFlickerJitterUpdate;
     private float _flickerJitter = 0.5f;
+    private float _interferenceStartedAt = -1f;
+    private float _interferenceEndsAt = -1f;
+    private float _interferenceIntensity;
+    private float _nextInterferenceUpdate;
+    private float _interferenceNoiseAlpha;
+    private float _interferenceBlackoutAlpha;
+    private float _interferenceBandPosition;
+    private float _interferenceBandHeight;
+    private float _interferenceColorOffset;
     private float _nextGrenadeCountUpdate;
     private int _readyGrenadeCount;
 
@@ -99,6 +108,27 @@ internal sealed class BodycamOverlay
     {
         _settings = settings;
         _bodyCamera = bodyCamera;
+    }
+
+    internal bool TriggerElectricalInterference(float intensity, float duration)
+    {
+        if (!_settings.ModEnabled.Value
+            || !_settings.BodyCameraEnabled.Value
+            || !_settings.OverlayEnabled.Value
+            || !_bodyCamera.ShouldDrawOverlay)
+        {
+            return false;
+        }
+
+        var now = Time.unscaledTime;
+        var wasActive = now < _interferenceEndsAt;
+        _interferenceStartedAt = now;
+        _interferenceEndsAt = Mathf.Max(_interferenceEndsAt, now + Mathf.Clamp(duration, 0.1f, 3f));
+        _interferenceIntensity = Mathf.Max(
+            wasActive ? _interferenceIntensity : 0f,
+            Mathf.Clamp01(intensity));
+        _nextInterferenceUpdate = 0f;
+        return true;
     }
 
     internal void Draw()
@@ -141,6 +171,7 @@ internal sealed class BodycamOverlay
             DrawRaidInformation(scale);
             DrawStatusHud(scale);
             DrawMagazineCheckLabel(scale);
+            DrawElectricalInterference();
         }
 
         GUI.color = previousColor;
@@ -204,6 +235,9 @@ internal sealed class BodycamOverlay
         _damageOwner = null;
         _raidOwner = null;
         _projectileHits.Clear();
+        _interferenceStartedAt = -1f;
+        _interferenceEndsAt = -1f;
+        _interferenceIntensity = 0f;
         ResetNativeLensDamage();
     }
 
@@ -302,6 +336,70 @@ internal sealed class BodycamOverlay
             new Rect(0f, 0f, Screen.width, Screen.height),
             _scanlineTexture,
             new Rect(0f, scanlineOffset, 1f, Screen.height / 4f));
+        GUI.color = previousColor;
+    }
+
+    private void DrawElectricalInterference()
+    {
+        var now = Time.unscaledTime;
+        if (_interferenceStartedAt < 0f || now >= _interferenceEndsAt)
+        {
+            _interferenceStartedAt = -1f;
+            _interferenceEndsAt = -1f;
+            _interferenceIntensity = 0f;
+            return;
+        }
+
+        var totalDuration = Mathf.Max(0.1f, _interferenceEndsAt - _interferenceStartedAt);
+        var elapsed = now - _interferenceStartedAt;
+        var remaining = _interferenceEndsAt - now;
+        var attack = Mathf.Clamp01(elapsed / 0.045f);
+        var fade = Mathf.Clamp01(remaining / Mathf.Max(0.12f, totalDuration * 0.38f));
+        var strength = _interferenceIntensity * attack * fade;
+
+        if (now >= _nextInterferenceUpdate)
+        {
+            _nextInterferenceUpdate = now + 0.035f + (float)_hudRandom.NextDouble() * 0.045f;
+            _interferenceNoiseAlpha = Mathf.Lerp(0.11f, 0.34f, (float)_hudRandom.NextDouble());
+            _interferenceBlackoutAlpha = _hudRandom.NextDouble() < 0.16d * strength
+                ? Mathf.Lerp(0.28f, 0.72f, (float)_hudRandom.NextDouble())
+                : Mathf.Lerp(0.015f, 0.08f, (float)_hudRandom.NextDouble());
+            _interferenceBandPosition = (float)_hudRandom.NextDouble();
+            _interferenceBandHeight = Mathf.Lerp(0.018f, 0.12f, (float)_hudRandom.NextDouble());
+            _interferenceColorOffset = Mathf.Lerp(2f, 9f, (float)_hudRandom.NextDouble());
+        }
+
+        UpdateDisconnectNoise();
+        var previousColor = GUI.color;
+        GUI.color = new Color(1f, 1f, 1f, _interferenceNoiseAlpha * strength);
+        GUI.DrawTexture(
+            new Rect(0f, 0f, Screen.width, Screen.height),
+            _disconnectNoiseTexture,
+            ScaleMode.StretchToFill,
+            false);
+
+        DrawRect(
+            new Rect(0f, 0f, Screen.width, Screen.height),
+            new Color(0f, 0f, 0f, _interferenceBlackoutAlpha * strength));
+
+        var bandY = Screen.height * _interferenceBandPosition;
+        var bandHeight = Mathf.Max(2f, Screen.height * _interferenceBandHeight);
+        DrawRect(
+            new Rect(0f, bandY, Screen.width, bandHeight),
+            new Color(0.005f, 0.008f, 0.009f, 0.48f * strength));
+        DrawRect(
+            new Rect(_interferenceColorOffset, bandY - 2f, Screen.width, 2f),
+            new Color(0.05f, 0.72f, 0.78f, 0.34f * strength));
+        DrawRect(
+            new Rect(-_interferenceColorOffset, bandY + bandHeight, Screen.width, 2f),
+            new Color(0.82f, 0.06f, 0.21f, 0.28f * strength));
+
+        GUI.color = new Color(1f, 1f, 1f, 0.11f * strength);
+        var scanlineOffset = Mathf.Repeat(now * 38f, 1f);
+        GUI.DrawTextureWithTexCoords(
+            new Rect(0f, 0f, Screen.width, Screen.height),
+            _scanlineTexture,
+            new Rect(0f, scanlineOffset, 1f, Screen.height / 2f));
         GUI.color = previousColor;
     }
 

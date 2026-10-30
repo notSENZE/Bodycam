@@ -1,10 +1,8 @@
-# IMPORTANT NOTE
+# ⚠️ IMPORTANT NOTE ⚠️
 My mods will no longer be available on The Forge.
-According to their rules, you won’t receive support if you’ve installed mods that weren’t published there. You’ll be advised to uninstall these (my) mods or be denied support altogether.
-If you have any issues with my mods, please contact me directly on Discord.
-
-**Discord Name:** *@obviously.senze*  
-**My Discord server:** https://discord.gg/PD5TPQFKpa
+Under The Forge's rules, mods that aren't released there aren't supported.
+This means that if you run into an issue that might be related to one of my mods, you may be denied support or advised to remove the mod.
+If you experience any issues with my mods, please join my [Discord](https://discord.gg/PD5TPQFKpa) for support.
 
 
 # ABOUT BODYCAM
@@ -54,6 +52,11 @@ HUD Overview:
 
 
 # BUG REPORTS
+If you encounter a bug or experience any issues with my mods, please include the following information in your report:
 
-It's very important to me that you document bugs visually and send me video or image footage.
-Please use https://discord.com/channels/1551226098354753576/1563209498108366998 for this.
+- **Description:** What happened, and what were you doing when the issue occurred?
+- **BepInEx logs**
+- **Server logs**
+- **Screenshots or video recordings**, if available
+
+Please submit your bug reports in the dedicated channel [on my Discord server](https://discord.com/channels/1551226098354753576/1563209498108366998).

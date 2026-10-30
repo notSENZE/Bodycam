@@ -15,10 +15,10 @@ This mod is highly customizable, so you can tailor the experience to your prefer
 I recommend using the default settings here. That's because they're designed to provide the best possible experience (in my opinion). 
 For a more immersive experience, I recommend turning off Tarkov's original HUD completely.
 
-**SPT version:** ~4.1.6  
+**SPT version:** `~4.1.6`  
 **Dependencies:** none  
-**FIKA compatible:** unknown
-**Recommendations:** https://sp-mod.com/mod/701/fontaines-fov-fix
+**FIKA compatible:** unknown  
+**Recommendations:** [Fontaine's FOV Fix](https://sp-mod.com/mod/701/fontaines-fov-fix)  
 **Incompatibilities:** None that I know of
 
 # DETAILS

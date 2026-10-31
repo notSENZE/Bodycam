@@ -12,6 +12,9 @@ internal sealed class ModConfig
     internal ConfigEntry<float> CameraSideways { get; }
     internal ConfigEntry<float> CameraVertical { get; }
     internal ConfigEntry<float> CameraForward { get; }
+    internal ConfigEntry<float> AdsOffsetX { get; }
+    internal ConfigEntry<float> AdsOffsetY { get; }
+    internal ConfigEntry<float> AdsOffsetZ { get; }
     internal ConfigEntry<float> CameraWeight { get; }
     internal ConfigEntry<float> MovementIntensity { get; }
     internal ConfigEntry<float> ShotReaction { get; }
@@ -82,11 +85,18 @@ internal sealed class ModConfig
             "Press this key to turn the bodycam on or off. The choice is saved.");
 
         CameraSideways = BindRange(config, "11 - Bodycam Position", "Body Offset X", 0.141784f, -0.2f, 0.2f,
-            "Moves the camera sideways. Positive = right. Negative = left.");
+            "Moves the physical bodycam mount sideways. Positive = right. Negative = left. This does not move the screen centre.");
         CameraVertical = BindRange(config, "11 - Bodycam Position", "Body Offset Y", 0.085f, -0.15f, 0.3f,
             "Moves the camera up or down. Positive = up. Negative = down.");
         CameraForward = BindRange(config, "11 - Bodycam Position", "Body Offset Z", 0.06307042f, -0.15f, 0.25f,
             "Moves the camera forward or backward. Positive = forward. Negative = backward.");
+
+        AdsOffsetX = BindRange(config, "11.5 - ADS Position", "ADS Offset X", 0f, -0.2f, 0.2f,
+            "Moves the camera sideways only while aiming. Positive = right. Negative = left. Large values can move the sight away from the screen centre.");
+        AdsOffsetY = BindRange(config, "11.5 - ADS Position", "ADS Offset Y", 0f, -0.15f, 0.3f,
+            "Moves the camera up or down only while aiming. Positive = up. Negative = down. Large values can move the sight away from the screen centre.");
+        AdsOffsetZ = BindRange(config, "11.5 - ADS Position", "ADS Offset Z", 0f, -0.15f, 0.25f,
+            "Moves the camera forward or backward only while aiming. Positive = forward. Negative = backward.");
 
         CameraWeight = BindRange(config, "12 - Bodycam Motion", "Camera Weight", 1f, 0f, 1f,
             "How heavily the camera follows the weapon. Higher = more lag and softer turns. 0 = direct Tarkov turning.");

@@ -18,6 +18,9 @@ internal sealed class BodyCameraController
     private bool _hasFollowRotation;
     private float _activationBlend;
     private float _adsBlend;
+    private float _adsOffsetBlend;
+    private Quaternion _viewRotationCorrection = Quaternion.identity;
+    private bool _hasViewRotationCorrection;
     private float _movementNoiseTime;
     private float _gaitPhase;
     private Vector3 _movementPosition;
@@ -188,9 +191,11 @@ internal sealed class BodyCameraController
         if (_activationBlend <= 0f && aiming)
         {
             _adsBlend = GetAdsTarget(aiming);
+            _adsOffsetBlend = 1f;
         }
         var adsTarget = GetAdsTarget(aiming);
         _adsBlend = ExpLerp(_adsBlend, adsTarget, 8f, deltaTime);
+        _adsOffsetBlend = ExpLerp(_adsOffsetBlend, aiming ? 1f : 0f, 8f, deltaTime);
         _activationBlend = ExpLerp(_activationBlend, 1f, 10f, deltaTime);
 
         var effectiveAdsBlend = _adsBlend;
@@ -227,13 +232,20 @@ internal sealed class BodyCameraController
             velocity,
             deltaTime);
         var positionBeforeActivation = Vector3.Lerp(bodyPosition, basePosition, effectiveAdsBlend);
-        positionBeforeActivation += baseRotation * (_movementPosition + _inertiaPosition);
+        var adsOffset = new Vector3(
+            _settings.AdsOffsetX.Value,
+            _settings.AdsOffsetY.Value,
+            _settings.AdsOffsetZ.Value) * _adsOffsetBlend;
+        positionBeforeActivation += baseRotation * (_movementPosition + _inertiaPosition + adsOffset);
         cameraTransform.position = Vector3.Lerp(basePosition, positionBeforeActivation, _activationBlend);
 
         var bodyRotation = _followRotation;
         var localRotation = _movementRotation + _inertiaRotation + _shotRotation;
         var bodyCameraRotation = bodyRotation * Quaternion.Euler(localRotation);
-        cameraTransform.rotation = Quaternion.Slerp(baseRotation, bodyCameraRotation, _activationBlend);
+        var finalRotation = Quaternion.Slerp(baseRotation, bodyCameraRotation, _activationBlend);
+        cameraTransform.rotation = finalRotation;
+        _viewRotationCorrection = finalRotation * Quaternion.Inverse(baseRotation);
+        _hasViewRotationCorrection = true;
     }
 
     internal void AddShotKick(Player player)
@@ -261,10 +273,25 @@ internal sealed class BodyCameraController
             return false;
         }
 
-        var cameraTransform = _camera.transform;
+        var centreRay = _camera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
         interactionRay = new Ray(
-            cameraTransform.position - cameraTransform.forward * EFTHardSettings.Instance.BEHIND_CAST,
-            cameraTransform.forward);
+            _camera.transform.position - centreRay.direction * EFTHardSettings.Instance.BEHIND_CAST,
+            centreRay.direction);
+        return true;
+    }
+
+    internal bool TryAdjustGrenadeDirection(
+        Player player,
+        Vector3 originalDirection,
+        out Vector3 adjustedDirection)
+    {
+        adjustedDirection = originalDirection;
+        if (!IsActiveFor(player) || !_hasViewRotationCorrection)
+        {
+            return false;
+        }
+
+        adjustedDirection = _viewRotationCorrection * originalDirection;
         return true;
     }
 
@@ -409,6 +436,9 @@ internal sealed class BodyCameraController
         _hasFollowRotation = false;
         _activationBlend = 0f;
         _adsBlend = 0f;
+        _adsOffsetBlend = 0f;
+        _viewRotationCorrection = Quaternion.identity;
+        _hasViewRotationCorrection = false;
         _movementNoiseTime = 0f;
         _gaitPhase = 0f;
         _movementPosition = Vector3.zero;
@@ -975,6 +1005,9 @@ internal sealed class BodyCameraController
         _hasFollowRotation = true;
         _activationBlend = 0f;
         _adsBlend = 0f;
+        _adsOffsetBlend = 0f;
+        _viewRotationCorrection = Quaternion.identity;
+        _hasViewRotationCorrection = false;
         _movementNoiseTime = 0f;
         _gaitPhase = 0f;
         _movementPosition = Vector3.zero;

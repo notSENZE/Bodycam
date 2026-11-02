@@ -28,6 +28,7 @@ internal sealed class ModConfig
     internal ConfigEntry<float> LowLightNoiseStrength { get; }
 
     internal ConfigEntry<bool> OverlayEnabled { get; }
+    internal ConfigEntry<HudPreset> OverlayPreset { get; }
     internal ConfigEntry<float> SensorNoiseStrength { get; }
     internal ConfigEntry<float> SignalFlickerStrength { get; }
     internal ConfigEntry<bool> FisheyeEffectEnabled { get; }
@@ -59,7 +60,11 @@ internal sealed class ModConfig
     internal ConfigEntry<float> MagazineCheckLabelScale { get; }
     internal ConfigEntry<float> MagazineCheckBackgroundOpacity { get; }
     internal ConfigEntry<bool> FaceCensorEnabled { get; }
+    internal ConfigEntry<CensorshipMode> CensorshipStyle { get; }
     internal ConfigEntry<float> FaceCensorSize { get; }
+    internal ConfigEntry<float> EyeMosaicWidth { get; }
+    internal ConfigEntry<float> EyeMosaicHeight { get; }
+    internal ConfigEntry<float> EyeMosaicVerticalOffset { get; }
     internal ConfigEntry<float> CensorshipMaximumDistance { get; }
     internal ConfigEntry<float> CensorshipBlockCount { get; }
     internal ConfigEntry<bool> DamageEffectsEnabled { get; }
@@ -84,7 +89,7 @@ internal sealed class ModConfig
             new KeyboardShortcut(KeyCode.F10),
             "Press this key to turn the bodycam on or off. The choice is saved.");
 
-        CameraSideways = BindRange(config, "11 - Bodycam Position", "Body Offset X", 0.141784f, -0.2f, 0.2f,
+        CameraSideways = BindRange(config, "11 - Bodycam Position", "Body Offset X", 0.131f, -0.2f, 0.2f,
             "Moves the physical bodycam mount sideways. Positive = right. Negative = left. This does not move the screen centre.");
         CameraVertical = BindRange(config, "11 - Bodycam Position", "Body Offset Y", 0.085f, -0.15f, 0.3f,
             "Moves the camera up or down. Positive = up. Negative = down.");
@@ -100,9 +105,9 @@ internal sealed class ModConfig
 
         CameraWeight = BindRange(config, "12 - Bodycam Motion", "Camera Weight", 1f, 0f, 1f,
             "How heavily the camera follows the weapon. Higher = more lag and softer turns. 0 = direct Tarkov turning.");
-        MovementIntensity = BindRange(config, "12 - Bodycam Motion", "Movement Intensity", 1.30216f, 0f, 2f,
+        MovementIntensity = BindRange(config, "12 - Bodycam Motion", "Movement Intensity", 1.41f, 0f, 2f,
             "Camera movement while walking, running, starting, stopping, and strafing. This also controls the walk and run head bob. 0 = off.");
-        ShotReaction = BindRange(config, "12 - Bodycam Motion", "Shot Reaction", 0.8f, 0f, 2f,
+        ShotReaction = BindRange(config, "12 - Bodycam Motion", "Shot Reaction", 1.6f, 0f, 2f,
             "Camera kick when firing. This does not change weapon recoil. 0 = off.");
         AdsCameraMode = config.Bind(
             "12 - Bodycam Motion",
@@ -113,7 +118,7 @@ internal sealed class ModConfig
         CornerPeekEnabled = config.Bind(
             "12.5 - Experimental Weapon Motion",
             "Corner Peek (Experimental)",
-            true,
+            false,
             "Rotates the weapon toward nearby cover edges while not aiming. This never runs in ADS.");
         CornerPeekStrength = BindRange(config, "12.5 - Experimental Weapon Motion", "Corner Peek Strength (Experimental)", 0.504038f, 0f, 2f,
             "Strength of the automatic weapon yaw and cant near cover. 0 = off. This never affects ADS.");
@@ -138,6 +143,11 @@ internal sealed class ModConfig
             "Enabled",
             true,
             "Shows the frame, REC label, battery, raid information, and status icons.");
+        OverlayPreset = config.Bind(
+            "14 - Bodycam Overlay",
+            "HUD Preset",
+            HudPreset.Standard,
+            "Selects the HUD layout. Standard keeps the full current HUD. Minimalistic shows only the frame and REC. RealBodycam shows an AXON-style recording stamp.");
         SensorNoiseStrength = BindRange(config, "14 - Bodycam Overlay", "Sensor Noise Strength", 0.24f, 0f, 1f,
             "Amount of fine camera noise. 0 = off.");
         SignalFlickerStrength = BindRange(config, "14 - Bodycam Overlay", "Signal Flicker Strength", 0.16f, 0f, 1f,
@@ -148,7 +158,7 @@ internal sealed class ModConfig
             true,
             "Turns the wide-angle bodycam lens distortion on or off.");
         FisheyeStrength = BindRange(config, "14.1 - Bodycam Lens", "Fisheye Strength", 18.21127f, 0f, 30f,
-            "Strength of the wide-angle curve near the screen edges. 0 = off.");
+            "Strength of the barrel-shaped wide-angle curve near the screen edges. 0 = off. 30 = very strong bodycam distortion.");
         FisheyeEdgeCrop = BindRange(config, "14.1 - Bodycam Lens", "Fisheye Edge Crop", 1.04f, 1f, 1.25f,
             "Slightly zooms the image to hide stretched outer edges.");
         ChromaticAberrationStrength = BindRange(config, "14.1 - Bodycam Lens", "Chromatic Aberration", 0.2973709f, 0f, 1f,
@@ -168,7 +178,7 @@ internal sealed class ModConfig
             "Rain on Lens",
             true,
             "Shows Tarkov's native visor-quality water drops on the camera during rain.");
-        LensSmearStrength = BindRange(config, "14.3 - Lens Surface", "Milky Lens Smear Visibility", 0.4006573f, 0f, 1f,
+        LensSmearStrength = BindRange(config, "14.3 - Lens Surface", "Milky Lens Smear Visibility", 0.3f, 0f, 1f,
             "Changes only the visibility of the permanent lens smears. 0% = invisible. 100% = fully visible. No blur or image distortion is added.");
         OverlayScale = BindRange(config, "14 - Bodycam Overlay", "HUD Scale", 0.7230048f, 0.6f, 1.6f,
             "Size of all bodycam HUD elements.");
@@ -216,11 +226,22 @@ internal sealed class ModConfig
             "Enabled",
             true,
             "Covers nearby visible faces with a privacy mosaic during normal raid gameplay. Hidden in inventory, looting and menus. Includes corpses.");
-        FaceCensorSize = BindRange(config, "14.7 - Censorship", "Mosaic Size", 0.9556338f, 0.75f, 1.8f,
-            "Changes how much of the face the square mosaic covers.");
+        CensorshipStyle = config.Bind(
+            "14.7 - Censorship",
+            "Censorship Mode",
+            CensorshipMode.EyeMosaicBar,
+            "EyeMosaicBar covers only the eyes. FullFaceMosaic keeps the original full-face effect.");
+        FaceCensorSize = BindRange(config, "14.7 - Censorship", "Mosaic Size", 1.1f, 0.75f, 1.8f,
+            "Changes the overall size of the selected privacy mosaic.");
+        EyeMosaicWidth = BindRange(config, "14.7 - Censorship", "Eye Bar Width", 1.08f, 0.7f, 1.8f,
+            "Changes the width of the eye mosaic bar. This setting only affects EyeMosaicBar.");
+        EyeMosaicHeight = BindRange(config, "14.7 - Censorship", "Eye Bar Height", 1.47f, 0.5f, 1.8f,
+            "Changes the height of the eye mosaic bar. This setting only affects EyeMosaicBar.");
+        EyeMosaicVerticalOffset = BindRange(config, "14.7 - Censorship", "Eye Bar Vertical Offset", 0.015f, -0.08f, 0.08f,
+            "Moves the eye mosaic bar up or down on the head. Positive = up. Negative = down.");
         CensorshipMaximumDistance = BindRange(config, "14.7 - Censorship", "Maximum Distance", 80f, 10f, 120f,
             "Farthest distance in metres at which visible faces are censored.");
-        CensorshipBlockCount = BindRange(config, "14.7 - Censorship", "Mosaic Blocks", 11.23474f, 5f, 18f,
+        CensorshipBlockCount = BindRange(config, "14.7 - Censorship", "Mosaic Blocks", 10f, 5f, 18f,
             "Pixel blocks across the mosaic at close range. Lower = larger blocks. The block count automatically decreases with distance.");
 
         DamageEffectsEnabled = config.Bind(

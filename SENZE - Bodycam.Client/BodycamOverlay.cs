@@ -21,6 +21,10 @@ internal sealed class BodycamOverlay
     private const float MinimumCensorshipScreenSize = 4f;
     private const float FaceForwardOffset = 0.085f;
 
+    private static readonly FieldInfo CorpsePlayerBodyField = typeof(Corpse).GetField(
+        "PlayerBody",
+        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
     private static readonly Color HudColor = new Color(0.64f, 0.65f, 0.62f, 0.82f);
     private static readonly Color TextColor = new Color(0.78f, 0.79f, 0.76f, 0.91f);
     private static readonly Color ShadowColor = new Color(0.01f, 0.012f, 0.01f, 0.62f);
@@ -45,6 +49,7 @@ internal sealed class BodycamOverlay
 
     private Texture2D _scanlineTexture;
     private Texture2D _recordingDotTexture;
+    private Texture2D _axonLogoTexture;
     private Texture2D[] _statusFillTextures;
     private Texture2D[] _statusOutlineTextures;
     private Texture2D _disconnectNoiseTexture;
@@ -75,6 +80,9 @@ internal sealed class BodycamOverlay
     private bool _nativeLensDamageDirty;
     private GUIStyle _operatorStyle;
     private GUIStyle _smallStyle;
+    private GUIStyle _presetHeaderStyle;
+    private GUIStyle _realBodycamPrimaryStyle;
+    private GUIStyle _realBodycamSecondaryStyle;
     private GUIStyle _statusCountStyle;
     private GUIStyle _leftStyle;
     private GUIStyle _magazineCountStyle;
@@ -163,13 +171,28 @@ internal sealed class BodycamOverlay
         {
             DrawLensEffects();
             DrawNativeLensDamage();
-            DrawCornerMarkers(scale);
-            DrawSideMarkers(scale);
-            DrawRecordingHeader(scale);
-            DrawWirelessStatus(scale);
-            DrawBattery(scale);
-            DrawRaidInformation(scale);
-            DrawStatusHud(scale);
+
+            if (_settings.OverlayPreset.Value == HudPreset.Minimalistic)
+            {
+                DrawPresetCornerMarkers(scale);
+                DrawMinimalisticHeader(scale);
+            }
+            else if (_settings.OverlayPreset.Value == HudPreset.RealBodycam)
+            {
+                DrawPresetCornerMarkers(scale);
+                DrawRealBodycamStamp(scale);
+            }
+            else
+            {
+                DrawCornerMarkers(scale);
+                DrawSideMarkers(scale);
+                DrawRecordingHeader(scale);
+                DrawWirelessStatus(scale);
+                DrawBattery(scale);
+                DrawRaidInformation(scale);
+                DrawStatusHud(scale);
+            }
+
             DrawMagazineCheckLabel(scale);
             DrawElectricalInterference();
         }
@@ -186,6 +209,7 @@ internal sealed class BodycamOverlay
         DestroyFaceMosaicRenderer();
         DestroyTexture(_scanlineTexture);
         DestroyTexture(_recordingDotTexture);
+        DestroyTexture(_axonLogoTexture);
         DestroyTexture(_disconnectNoiseTexture);
         if (_wifiTextures != null)
         {
@@ -223,6 +247,7 @@ internal sealed class BodycamOverlay
         }
         _scanlineTexture = null;
         _recordingDotTexture = null;
+        _axonLogoTexture = null;
         _disconnectNoiseTexture = null;
         _wifiTextures = null;
         _batteryTextures = null;
@@ -425,6 +450,15 @@ internal sealed class BodycamOverlay
         }
 
         var sizeScale = _settings.FaceCensorSize.Value;
+        var corpses = gameWorld.LootList
+            .OfType<Corpse>()
+            .Where(corpse => corpse != null && corpse.gameObject.activeInHierarchy)
+            .ToArray();
+        var corpseProfileIds = new HashSet<string>(
+            corpses
+                .Select(corpse => corpse.PlayerProfileID)
+                .Where(profileId => !string.IsNullOrEmpty(profileId)));
+
         foreach (var registeredPlayer in gameWorld.RegisteredPlayers)
         {
             var player = registeredPlayer as Player;
@@ -432,6 +466,15 @@ internal sealed class BodycamOverlay
                 || ReferenceEquals(player, localPlayer)
                 || player.PlayerBones?.Head == null
                 || !player.gameObject.activeInHierarchy)
+            {
+                continue;
+            }
+
+            var playerIsAlive = player.HealthController != null
+                && player.HealthController.IsAlive;
+            if (!playerIsAlive
+                && !string.IsNullOrEmpty(player.ProfileId)
+                && corpseProfileIds.Contains(player.ProfileId))
             {
                 continue;
             }
@@ -456,14 +499,10 @@ internal sealed class BodycamOverlay
                 sizeScale);
         }
 
-        foreach (var corpse in gameWorld.LootList.OfType<Corpse>())
+        foreach (var corpse in corpses)
         {
-            if (corpse == null || !corpse.gameObject.activeInHierarchy)
-            {
-                continue;
-            }
-
-            var playerBody = corpse.GetComponentInChildren<PlayerBody>();
+            var playerBody = CorpsePlayerBodyField?.GetValue(corpse) as PlayerBody
+                ?? corpse.GetComponentInChildren<PlayerBody>();
             var head = playerBody?.PlayerBones?.Head?.Original;
             if (head == null)
             {
@@ -514,25 +553,42 @@ internal sealed class BodycamOverlay
         {
             mosaic.HeadLocalFaceDirection = head.InverseTransformDirection(referenceDirection.normalized);
             mosaic.HasHeadLocalFaceDirection = mosaic.HeadLocalFaceDirection.sqrMagnitude > 0.0001f;
+            mosaic.HeadLocalUpDirection = head.InverseTransformDirection(targetRoot.up.normalized);
+            mosaic.HasHeadLocalUpDirection = mosaic.HeadLocalUpDirection.sqrMagnitude > 0.0001f;
         }
 
         var faceDirection = mosaic.HasHeadLocalFaceDirection
             ? head.TransformDirection(mosaic.HeadLocalFaceDirection).normalized
             : referenceDirection.normalized;
+        var faceUp = mosaic.HasHeadLocalUpDirection
+            ? head.TransformDirection(mosaic.HeadLocalUpDirection).normalized
+            : targetRoot.up.normalized;
 
         var faceCentre = head.position + faceDirection.normalized * FaceForwardOffset;
-        var cameraDistance = Vector3.Distance(faceCentre, camera.transform.position);
+        var eyeMosaic = _settings.CensorshipStyle.Value == CensorshipMode.EyeMosaicBar;
+        var censorshipCentre = eyeMosaic
+            ? faceCentre + faceUp * _settings.EyeMosaicVerticalOffset.Value
+            : faceCentre;
+        var worldWidth = eyeMosaic
+            ? 0.235f * sizeScale * _settings.EyeMosaicWidth.Value
+            : 0.27f * sizeScale;
+        var worldHeight = eyeMosaic
+            ? 0.064f * sizeScale * _settings.EyeMosaicHeight.Value
+            : 0.27f * sizeScale;
+        var cameraDistance = Vector3.Distance(censorshipCentre, camera.transform.position);
         var maximumDistance = _settings.CensorshipMaximumDistance.Value;
         if (cameraDistance > maximumDistance
-            || !TryGetFaceRect(camera, faceCentre, sizeScale, out var faceRect)
-            || !IsFaceVisible(gameWorld, localPlayer, targetPlayer, targetRoot, faceCentre))
+            || !TryGetCensorshipRect(camera, censorshipCentre, worldWidth, worldHeight, out var faceRect)
+            || !IsFaceVisible(gameWorld, localPlayer, targetPlayer, targetRoot, censorshipCentre))
         {
             return;
         }
 
         mosaic.ScreenRect = faceRect;
-        mosaic.WorldCentre = faceCentre;
-        mosaic.WorldSize = 0.27f * sizeScale;
+        mosaic.WorldCentre = censorshipCentre;
+        mosaic.WorldWidth = worldWidth;
+        mosaic.WorldHeight = worldHeight;
+        mosaic.WorldUp = faceUp;
         mosaic.LastVisibleFrame = Time.frameCount;
         if (Time.unscaledTime < mosaic.NextCaptureTime)
         {
@@ -570,10 +626,15 @@ internal sealed class BodycamOverlay
                 continue;
             }
 
-            var faceDepthClearance = Mathf.Max(0.06f, mosaic.WorldSize * 0.28f);
+            var faceDepthClearance = Mathf.Max(0.06f, Mathf.Max(mosaic.WorldWidth, mosaic.WorldHeight) * 0.28f);
             var renderPosition = mosaic.WorldCentre + directionToCamera.normalized * faceDepthClearance;
-            var renderRotation = Quaternion.LookRotation(directionToCamera, camera.transform.up);
-            var renderScale = new Vector3(mosaic.WorldSize, mosaic.WorldSize, 1f);
+            var renderUp = Vector3.ProjectOnPlane(mosaic.WorldUp, directionToCamera);
+            if (renderUp.sqrMagnitude < 0.0001f)
+            {
+                renderUp = camera.transform.up;
+            }
+            var renderRotation = Quaternion.LookRotation(directionToCamera, renderUp.normalized);
+            var renderScale = new Vector3(mosaic.WorldWidth, mosaic.WorldHeight, 1f);
             _faceMosaicMaterial.mainTexture = mosaic.Texture;
             if (_faceMosaicMaterial.SetPass(0))
             {
@@ -645,10 +706,15 @@ internal sealed class BodycamOverlay
         _faceMosaicMesh = null;
     }
 
-    private static bool TryGetFaceRect(Camera camera, Vector3 faceCentre, float sizeScale, out Rect rect)
+    private static bool TryGetCensorshipRect(
+        Camera camera,
+        Vector3 worldCentre,
+        float worldWidth,
+        float worldHeight,
+        out Rect rect)
     {
         rect = default;
-        var screenCentre = camera.WorldToScreenPoint(faceCentre);
+        var screenCentre = camera.WorldToScreenPoint(worldCentre);
         if (screenCentre.z <= 0.05f
             || screenCentre.x < -100f
             || screenCentre.x > Screen.width + 100f
@@ -659,26 +725,29 @@ internal sealed class BodycamOverlay
         }
 
         var cameraTransform = camera.transform;
-        var screenRight = camera.WorldToScreenPoint(faceCentre + cameraTransform.right * 0.105f);
-        var screenTop = camera.WorldToScreenPoint(faceCentre + cameraTransform.up * 0.135f);
-        var width = Mathf.Abs(screenRight.x - screenCentre.x) * 2f * sizeScale;
-        var height = Mathf.Abs(screenTop.y - screenCentre.y) * 2f * sizeScale;
+        var screenRight = camera.WorldToScreenPoint(worldCentre + cameraTransform.right * worldWidth * 0.5f);
+        var screenTop = camera.WorldToScreenPoint(worldCentre + cameraTransform.up * worldHeight * 0.5f);
+        var width = Mathf.Abs(screenRight.x - screenCentre.x) * 2f;
+        var height = Mathf.Abs(screenTop.y - screenCentre.y) * 2f;
         var minimumFaceSize = Mathf.Max(
             MinimumCensorshipScreenSize,
             Screen.height * MinimumCensorshipScreenHeightRatio);
-        if (width < minimumFaceSize || height < minimumFaceSize)
+        if (width < minimumFaceSize || height < 1f)
         {
             return false;
         }
 
-        var side = Mathf.Min(
-            Mathf.Max(width, height),
-            Mathf.Min(Screen.width * 0.34f, Screen.height * 0.46f));
+        var scale = Mathf.Min(
+            1f,
+            Screen.width * 0.34f / width,
+            Screen.height * 0.46f / height);
+        width = Mathf.Max(2f, width * scale);
+        height = Mathf.Max(2f, height * scale);
         rect = new Rect(
-            screenCentre.x - side * 0.5f,
-            Screen.height - screenCentre.y - side * 0.5f,
-            side,
-            side);
+            screenCentre.x - width * 0.5f,
+            Screen.height - screenCentre.y - height * 0.5f,
+            width,
+            height);
         return true;
     }
 
@@ -721,13 +790,14 @@ internal sealed class BodycamOverlay
             3f,
             _settings.CensorshipMaximumDistance.Value,
             cameraDistance);
-        var mosaicSize = Mathf.RoundToInt(Mathf.Lerp(configuredBlockCount, distantBlockCount, distanceRatio));
+        var mosaicWidth = Mathf.RoundToInt(Mathf.Lerp(configuredBlockCount, distantBlockCount, distanceRatio));
+        var mosaicHeight = Mathf.Max(2, Mathf.RoundToInt(mosaicWidth * height / (float)width));
         if (mosaic.Texture == null
-            || mosaic.Texture.width != mosaicSize
-            || mosaic.Texture.height != mosaicSize)
+            || mosaic.Texture.width != mosaicWidth
+            || mosaic.Texture.height != mosaicHeight)
         {
             DestroyTexture(mosaic.Texture);
-            mosaic.Texture = new Texture2D(mosaicSize, mosaicSize, TextureFormat.RGB24, false)
+            mosaic.Texture = new Texture2D(mosaicWidth, mosaicHeight, TextureFormat.RGB24, false)
             {
                 name = "Senze Bodycam Privacy Mosaic",
                 filterMode = FilterMode.Point,
@@ -737,15 +807,15 @@ internal sealed class BodycamOverlay
         }
 
         var sourcePixels = mosaic.Capture.GetPixels32();
-        var mosaicPixels = new Color32[mosaicSize * mosaicSize];
-        for (var mosaicY = 0; mosaicY < mosaicSize; mosaicY++)
+        var mosaicPixels = new Color32[mosaicWidth * mosaicHeight];
+        for (var mosaicY = 0; mosaicY < mosaicHeight; mosaicY++)
         {
-            var sourceYStart = Mathf.FloorToInt(mosaicY * height / (float)mosaicSize);
-            var sourceYEnd = Mathf.Max(sourceYStart + 1, Mathf.CeilToInt((mosaicY + 1) * height / (float)mosaicSize));
-            for (var mosaicX = 0; mosaicX < mosaicSize; mosaicX++)
+            var sourceYStart = Mathf.FloorToInt(mosaicY * height / (float)mosaicHeight);
+            var sourceYEnd = Mathf.Max(sourceYStart + 1, Mathf.CeilToInt((mosaicY + 1) * height / (float)mosaicHeight));
+            for (var mosaicX = 0; mosaicX < mosaicWidth; mosaicX++)
             {
-                var sourceXStart = Mathf.FloorToInt(mosaicX * width / (float)mosaicSize);
-                var sourceXEnd = Mathf.Max(sourceXStart + 1, Mathf.CeilToInt((mosaicX + 1) * width / (float)mosaicSize));
+                var sourceXStart = Mathf.FloorToInt(mosaicX * width / (float)mosaicWidth);
+                var sourceXEnd = Mathf.Max(sourceXStart + 1, Mathf.CeilToInt((mosaicX + 1) * width / (float)mosaicWidth));
                 long red = 0;
                 long green = 0;
                 long blue = 0;
@@ -762,7 +832,7 @@ internal sealed class BodycamOverlay
                     }
                 }
 
-                mosaicPixels[mosaicY * mosaicSize + mosaicX] = new Color32(
+                mosaicPixels[mosaicY * mosaicWidth + mosaicX] = new Color32(
                     (byte)(red / sampleCount),
                     (byte)(green / sampleCount),
                     (byte)(blue / sampleCount),
@@ -1157,6 +1227,98 @@ internal sealed class BodycamOverlay
         DrawCorner(Screen.width - margin, margin, length, thickness, horizontalRight: false, verticalDown: true);
         DrawCorner(margin, Screen.height - margin, length, thickness, horizontalRight: true, verticalDown: false);
         DrawCorner(Screen.width - margin, Screen.height - margin, length, thickness, horizontalRight: false, verticalDown: false);
+    }
+
+    private void DrawPresetCornerMarkers(float scale)
+    {
+        var margin = 12f * scale;
+        var length = 150f * scale;
+        var thickness = Mathf.Max(2f, 4f * scale);
+        var color = new Color(0.96f, 0.96f, 0.96f, 0.96f);
+
+        DrawPresetCorner(margin, margin, length, thickness, true, true, color);
+        DrawPresetCorner(Screen.width - margin, margin, length, thickness, false, true, color);
+        DrawPresetCorner(margin, Screen.height - margin, length, thickness, true, false, color);
+        DrawPresetCorner(Screen.width - margin, Screen.height - margin, length, thickness, false, false, color);
+    }
+
+    private static void DrawPresetCorner(
+        float x,
+        float y,
+        float length,
+        float thickness,
+        bool horizontalRight,
+        bool verticalDown,
+        Color color)
+    {
+        var horizontalX = horizontalRight ? x : x - length;
+        var verticalY = verticalDown ? y : y - length;
+        DrawRect(new Rect(horizontalX, y, length, thickness), color);
+        DrawRect(new Rect(x, verticalY, thickness, length), color);
+    }
+
+    private void DrawMinimalisticHeader(float scale)
+    {
+        var centreX = Screen.width * 0.5f;
+        var top = 34f * scale;
+        var textRect = new Rect(centreX - 82f * scale, top, 130f * scale, 30f * scale);
+        DrawShadowedLabel(textRect, "REC", _presetHeaderStyle);
+
+        var dotSize = 18f * scale;
+        GUI.color = RecordingColor;
+        GUI.DrawTexture(
+            new Rect(centreX + 20f * scale, top + 6f * scale, dotSize, dotSize),
+            _recordingDotTexture);
+    }
+
+    private void DrawRealBodycamStamp(float scale)
+    {
+        var top = Screen.height - 156f * scale;
+        var logoRect = new Rect(52f * scale, top + 8f * scale, 82f * scale, 82f * scale);
+        GUI.color = Color.white;
+        GUI.DrawTexture(logoRect, _axonLogoTexture, ScaleMode.ScaleToFit, true);
+
+        var textLeft = 154f * scale;
+        var lineHeight = 27f * scale;
+        DrawShadowedLabel(
+            new Rect(textLeft, top, 58f * scale, lineHeight),
+            "REC",
+            _realBodycamPrimaryStyle);
+
+        if (Mathf.FloorToInt(Time.unscaledTime * 1.6f) % 2 == 0)
+        {
+            var dotSize = 17f * scale;
+            GUI.color = RecordingColor;
+            GUI.DrawTexture(
+                new Rect(textLeft + 42f * scale, top + 5f * scale, dotSize, dotSize),
+                _recordingDotTexture);
+        }
+
+        DrawShadowedLabel(
+            new Rect(textLeft + 70f * scale, top, 310f * scale, lineHeight),
+            "AXON BODY CAM™",
+            _realBodycamPrimaryStyle);
+
+        var operatorName = _raidOwner?.Profile?.Info?.Nickname;
+        if (string.IsNullOrWhiteSpace(operatorName))
+        {
+            operatorName = "OPERATOR";
+        }
+
+        DrawShadowedLabel(
+            new Rect(textLeft, top + 27f * scale, 430f * scale, lineHeight),
+            $"OPERATOR: {operatorName.ToUpperInvariant()}",
+            _realBodycamSecondaryStyle);
+
+        var raidTime = GetCurrentRaidWorldTime();
+        var displayedTime = raidTime.HasValue
+            ? raidTime.Value.ToString("HH:mm", CultureInfo.InvariantCulture)
+            : DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+        var date = DateTime.Now.ToString("MMM dd yyyy", CultureInfo.InvariantCulture).ToUpperInvariant();
+        DrawShadowedLabel(
+            new Rect(textLeft, top + 54f * scale, 430f * scale, lineHeight),
+            $"{date} | {displayedTime}",
+            _realBodycamSecondaryStyle);
     }
 
     private void DrawSideMarkers(float scale)
@@ -1585,6 +1747,10 @@ internal sealed class BodycamOverlay
         {
             _recordingDotTexture = CreateDotTexture();
         }
+        if (_axonLogoTexture == null)
+        {
+            _axonLogoTexture = CreateAxonLogoTexture();
+        }
         if (_statusFillTextures == null || _statusOutlineTextures == null)
         {
             var iconCount = Enum.GetValues(typeof(StatusIconKind)).Length;
@@ -1637,6 +1803,12 @@ internal sealed class BodycamOverlay
         _cachedMagazineFontSize = magazineFontSize;
         _operatorStyle = CreateStyle(fontSize, TextAnchor.MiddleCenter, FontStyle.Bold);
         _smallStyle = CreateStyle(Mathf.Max(10, Mathf.RoundToInt(13f * scale)), TextAnchor.MiddleCenter, FontStyle.Bold);
+        _presetHeaderStyle = CreateStyle(Mathf.Max(13, Mathf.RoundToInt(22f * scale)), TextAnchor.MiddleCenter, FontStyle.Bold);
+        _presetHeaderStyle.normal.textColor = new Color(0.96f, 0.96f, 0.96f, 0.96f);
+        _realBodycamPrimaryStyle = CreateStyle(Mathf.Max(12, Mathf.RoundToInt(19f * scale)), TextAnchor.MiddleLeft, FontStyle.Bold);
+        _realBodycamPrimaryStyle.normal.textColor = new Color(0.96f, 0.96f, 0.96f, 0.96f);
+        _realBodycamSecondaryStyle = CreateStyle(Mathf.Max(11, Mathf.RoundToInt(17f * scale)), TextAnchor.MiddleLeft, FontStyle.Bold);
+        _realBodycamSecondaryStyle.normal.textColor = new Color(0.96f, 0.96f, 0.96f, 0.96f);
         _statusCountStyle = CreateStyle(Mathf.Max(12, Mathf.RoundToInt(18f * scale)), TextAnchor.MiddleLeft, FontStyle.Bold);
         _leftStyle = CreateStyle(Mathf.Max(10, Mathf.RoundToInt(15f * scale)), TextAnchor.LowerLeft, FontStyle.Bold);
         _leftStyle.wordWrap = false;
@@ -1717,6 +1889,49 @@ internal sealed class BodycamOverlay
                 var dy = (y + 0.5f) / size * 2f - 1f;
                 var alpha = Mathf.Clamp01((1f - Mathf.Sqrt(dx * dx + dy * dy)) * 8f);
                 pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
+            }
+        }
+
+        texture.SetPixels(pixels);
+        texture.Apply(false, true);
+        return texture;
+    }
+
+    private static Texture2D CreateAxonLogoTexture()
+    {
+        const int size = 96;
+        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+        {
+            name = "Senze Bodycam AXON Logo",
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        var outerTriangle = new[]
+        {
+            new Vector2(0.50f, 0.03f),
+            new Vector2(0.98f, 0.94f),
+            new Vector2(0.02f, 0.94f)
+        };
+        var innerTriangle = new[]
+        {
+            new Vector2(0.50f, 0.28f),
+            new Vector2(0.76f, 0.77f),
+            new Vector2(0.24f, 0.77f)
+        };
+        var pixels = new Color[size * size];
+        var yellow = new Color(1f, 0.82f, 0f, 1f);
+
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var normalizedX = (x + 0.5f) / size;
+                var normalizedY = 1f - (y + 0.5f) / size;
+                var inOuter = IsInsidePolygon(outerTriangle, normalizedX, normalizedY);
+                var inInner = IsInsidePolygon(innerTriangle, normalizedX, normalizedY);
+                pixels[y * size + x] = inOuter && !inInner ? yellow : Color.clear;
             }
         }
 
@@ -2078,9 +2293,13 @@ internal sealed class BodycamOverlay
         internal Texture2D Texture { get; set; }
         internal Rect ScreenRect { get; set; }
         internal Vector3 WorldCentre { get; set; }
-        internal float WorldSize { get; set; }
+        internal float WorldWidth { get; set; }
+        internal float WorldHeight { get; set; }
+        internal Vector3 WorldUp { get; set; }
         internal Vector3 HeadLocalFaceDirection { get; set; }
         internal bool HasHeadLocalFaceDirection { get; set; }
+        internal Vector3 HeadLocalUpDirection { get; set; }
+        internal bool HasHeadLocalUpDirection { get; set; }
         internal int LastVisibleFrame { get; set; }
         internal float NextCaptureTime { get; set; }
     }

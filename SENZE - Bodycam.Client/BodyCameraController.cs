@@ -1,6 +1,8 @@
 using BepInEx.Logging;
 using EFT;
+using EFT.Animations;
 using EFT.CameraControl;
+using HarmonyLib;
 using UnityEngine;
 using UnityEngine.Rendering.PostProcessing;
 using PostProcessChromaticAberration = UnityEngine.Rendering.PostProcessing.ChromaticAberration;
@@ -9,6 +11,9 @@ namespace SenzeBodycam;
 
 internal sealed class BodyCameraController
 {
+    private static readonly AccessTools.FieldRef<ProceduralWeaponAnimation, float> AimingWeightRef =
+        AccessTools.FieldRefAccess<ProceduralWeaponAnimation, float>("_aimingWeight");
+
     private readonly ModConfig _settings;
     private readonly ManualLogSource _logger;
     private Player _player;
@@ -17,8 +22,6 @@ internal sealed class BodyCameraController
     private Vector3 _followAngularVelocity;
     private bool _hasFollowRotation;
     private float _activationBlend;
-    private float _adsBlend;
-    private float _adsOffsetBlend;
     private Quaternion _viewRotationCorrection = Quaternion.identity;
     private bool _hasViewRotationCorrection;
     private float _movementNoiseTime;
@@ -187,18 +190,10 @@ internal sealed class BodyCameraController
             return;
         }
 
-        var aiming = player.ProceduralWeaponAnimation?.IsAiming == true;
-        if (_activationBlend <= 0f && aiming)
-        {
-            _adsBlend = GetAdsTarget(aiming);
-            _adsOffsetBlend = 1f;
-        }
-        var adsTarget = GetAdsTarget(aiming);
-        _adsBlend = ExpLerp(_adsBlend, adsTarget, 8f, deltaTime);
-        _adsOffsetBlend = ExpLerp(_adsOffsetBlend, aiming ? 1f : 0f, 8f, deltaTime);
+        var nativeAdsBlend = GetNativeAdsBlend(player.ProceduralWeaponAnimation);
         _activationBlend = ExpLerp(_activationBlend, 1f, 10f, deltaTime);
 
-        var effectiveAdsBlend = _adsBlend;
+        var effectiveAdsBlend = GetAdsBlend(nativeAdsBlend);
 
         if (!_hasFollowRotation)
         {
@@ -235,7 +230,7 @@ internal sealed class BodyCameraController
         var adsOffset = new Vector3(
             _settings.AdsOffsetX.Value,
             _settings.AdsOffsetY.Value,
-            _settings.AdsOffsetZ.Value) * _adsOffsetBlend;
+            _settings.AdsOffsetZ.Value) * nativeAdsBlend;
         positionBeforeActivation += baseRotation * (_movementPosition + _inertiaPosition + adsOffset);
         cameraTransform.position = Vector3.Lerp(basePosition, positionBeforeActivation, _activationBlend);
 
@@ -435,8 +430,6 @@ internal sealed class BodyCameraController
         _followAngularVelocity = Vector3.zero;
         _hasFollowRotation = false;
         _activationBlend = 0f;
-        _adsBlend = 0f;
-        _adsOffsetBlend = 0f;
         _viewRotationCorrection = Quaternion.identity;
         _hasViewRotationCorrection = false;
         _movementNoiseTime = 0f;
@@ -503,7 +496,10 @@ internal sealed class BodyCameraController
         lensDistortion.centerY.value = 0f;
         lensDistortion.intensityX.value = 1f;
         lensDistortion.intensityY.value = 1f;
-        lensDistortion.intensity.value = _settings.FisheyeStrength.Value;
+        lensDistortion.intensity.value = -Mathf.Clamp(
+            _settings.FisheyeStrength.Value * 2f,
+            0f,
+            100f);
         lensDistortion.scale.value = _settings.FisheyeEdgeCrop.Value;
     }
 
@@ -1004,8 +1000,6 @@ internal sealed class BodyCameraController
         _followAngularVelocity = Vector3.zero;
         _hasFollowRotation = true;
         _activationBlend = 0f;
-        _adsBlend = 0f;
-        _adsOffsetBlend = 0f;
         _viewRotationCorrection = Quaternion.identity;
         _hasViewRotationCorrection = false;
         _movementNoiseTime = 0f;
@@ -1270,21 +1264,26 @@ internal sealed class BodyCameraController
             deltaTime);
     }
 
-    private float GetAdsTarget(bool aiming)
+    private static float GetNativeAdsBlend(ProceduralWeaponAnimation weaponAnimation)
     {
-        if (!aiming)
+        if (weaponAnimation == null)
         {
             return 0f;
         }
 
+        return Mathf.Clamp01(AimingWeightRef(weaponAnimation));
+    }
+
+    private float GetAdsBlend(float nativeAdsBlend)
+    {
         if (_settings.AdsCameraMode.Value == BodycamAdsMode.Vanilla)
         {
-            return 1f;
+            return nativeAdsBlend;
         }
 
         if (_settings.AdsCameraMode.Value == BodycamAdsMode.ShoulderAssist)
         {
-            return 0.28f;
+            return nativeAdsBlend * 0.28f;
         }
 
         return 0f;

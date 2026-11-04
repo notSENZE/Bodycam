@@ -8,7 +8,7 @@ public sealed record ModMetadata : IModMetadata
     public string Name { get; init; } = "Senze Bodycam";
     public string Author { get; init; } = "Senze";
     public List<string>? Contributors { get; init; }
-    public SemanticVersioning.Version Version { get; init; } = new("1.1.0");
+    public SemanticVersioning.Version Version { get; init; } = new("1.2.0");
     public SemanticVersioning.Range SptVersion { get; init; } = new("~4.1.0");
     public bool HasPrepatcher { get; init; }
     public List<string>? Incompatibilities { get; init; }

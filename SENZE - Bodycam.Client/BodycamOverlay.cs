@@ -45,6 +45,7 @@ internal sealed class BodycamOverlay
     private readonly HashSet<ProjectileHitKey> _projectileHits = new HashSet<ProjectileHitKey>();
     private readonly Dictionary<string, FaceMosaic> _faceMosaics = new Dictionary<string, FaceMosaic>();
     private readonly RaycastHit[] _faceOcclusionHits = new RaycastHit[24];
+    private readonly LensDamageMark[] _nativeLensDamageMarks = new LensDamageMark[2];
     private readonly System.Random _hudRandom = new System.Random();
 
     private Texture2D _scanlineTexture;
@@ -76,7 +77,6 @@ internal sealed class BodycamOverlay
     private RenderTexture _nativeLensDamageTexture;
     private Texture2D _nativeLensDamageDisplayTexture;
     private int _nativeLensHitCount;
-    private byte _nativeLensHitSeed;
     private bool _nativeLensDamageDirty;
     private GUIStyle _operatorStyle;
     private GUIStyle _smallStyle;
@@ -90,7 +90,6 @@ internal sealed class BodycamOverlay
     private GUIStyle _disconnectStyle;
     private int _cachedFontSize;
     private int _cachedMagazineFontSize;
-    private int _damageSeed;
     private Player _damageOwner;
     private Player _raidOwner;
     private string _raidLocationName = "UNKNOWN";
@@ -333,13 +332,54 @@ internal sealed class BodycamOverlay
             return;
         }
 
-        _damageSeed++;
+        _nativeLensDamageMarks[_nativeLensHitCount] = CreateLensDamageMark();
         _nativeLensHitCount++;
-        if (_nativeLensHitSeed == 0)
-        {
-            _nativeLensHitSeed = (byte)Mathf.Clamp((_damageSeed * 37 + 17) & 0xff, 1, 255);
-        }
         _nativeLensDamageDirty = true;
+    }
+
+    private LensDamageMark CreateLensDamageMark()
+    {
+        var position = RandomLensDamagePosition();
+        if (_nativeLensHitCount > 0)
+        {
+            var firstPosition = _nativeLensDamageMarks[0].Position;
+            var bestPosition = position;
+            var bestDistance = (position - firstPosition).sqrMagnitude;
+            for (var attempt = 0; attempt < 10 && bestDistance < 0.36f; attempt++)
+            {
+                position = RandomLensDamagePosition();
+                var distance = (position - firstPosition).sqrMagnitude;
+                if (distance > bestDistance)
+                {
+                    bestPosition = position;
+                    bestDistance = distance;
+                }
+            }
+            position = bestPosition;
+        }
+
+        return new LensDamageMark(
+            position,
+            Mathf.Lerp(1.15f, 1.75f, (float)_hudRandom.NextDouble()),
+            Mathf.Lerp(0f, 360f, (float)_hudRandom.NextDouble()));
+    }
+
+    private Vector2 RandomLensDamagePosition()
+    {
+        var position = Vector2.zero;
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            position = new Vector2(
+                Mathf.Lerp(-0.88f, 0.88f, (float)_hudRandom.NextDouble()),
+                Mathf.Lerp(-0.78f, 0.78f, (float)_hudRandom.NextDouble()));
+            if (Mathf.Abs(position.x) >= 0.5f || Mathf.Abs(position.y) >= 0.42f)
+            {
+                return position;
+            }
+        }
+
+        position.x = position.x < 0f ? -0.55f : 0.55f;
+        return position;
     }
 
     private void DrawLensEffects()
@@ -1113,16 +1153,12 @@ internal sealed class BodycamOverlay
         var previousTarget = RenderTexture.active;
         Graphics.SetRenderTarget(_nativeLensDamageTexture);
         GL.Clear(true, true, Color.clear);
-        UnityEngine.Random.InitState(_nativeLensHitSeed);
         for (var index = 0; index < _nativeLensHitCount; index++)
         {
-            var position = new Vector3(
-                UnityEngine.Random.Range(-1f, 1f),
-                UnityEngine.Random.Range(-1f, 1f));
-            var size = UnityEngine.Random.Range(1.6f, 2.6f);
-            var scale = new Vector3(size / _nativeVisorCamera.aspect, size);
-            var rotation = UnityEngine.Random.Range(0f, 360f);
-            _nativeVisorEffect.Draw(position, scale, rotation);
+            var mark = _nativeLensDamageMarks[index];
+            var position = new Vector3(mark.Position.x, mark.Position.y);
+            var scale = new Vector3(mark.Size / _nativeVisorCamera.aspect, mark.Size);
+            _nativeVisorEffect.Draw(position, scale, mark.Rotation);
         }
 
         _nativeLensDamageDisplayTexture.ReadPixels(
@@ -2206,7 +2242,7 @@ internal sealed class BodycamOverlay
     private void ResetNativeLensDamage()
     {
         _nativeLensHitCount = 0;
-        _nativeLensHitSeed = 0;
+        Array.Clear(_nativeLensDamageMarks, 0, _nativeLensDamageMarks.Length);
         _nativeLensDamageDirty = true;
     }
 
@@ -2302,6 +2338,20 @@ internal sealed class BodycamOverlay
         internal bool HasHeadLocalUpDirection { get; set; }
         internal int LastVisibleFrame { get; set; }
         internal float NextCaptureTime { get; set; }
+    }
+
+    private readonly struct LensDamageMark
+    {
+        internal LensDamageMark(Vector2 position, float size, float rotation)
+        {
+            Position = position;
+            Size = size;
+            Rotation = rotation;
+        }
+
+        internal Vector2 Position { get; }
+        internal float Size { get; }
+        internal float Rotation { get; }
     }
 
     private enum StatusIconKind

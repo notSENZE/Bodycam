@@ -21,6 +21,7 @@ For a more immersive experience, I recommend turning off Tarkov's original HUD c
 **Recommendations:** [Fontaine's FOV Fix](https://sp-mod.com/mod/701/fontaines-fov-fix)  
 **Incompatibilities:** None that I know of
 
+
 # DETAILS
 - Slight camera shake while walking
 - Severe camera shake while running
@@ -29,26 +30,7 @@ For a more immersive experience, I recommend turning off Tarkov's original HUD c
 - Chromatic aberration, blurriness, and vignetting at the edges of the screen
 - The lens shatters upon being hit
 - Censorship for enemies. Because privacy is important these days.
-- Custom HUD
-
-HUD Overview:
-
-**Bottom right**
-- Heart: Represents health (depletes when hit, refills when healed). A flashing red halo around the heart indicates severe bleeding.
-- Water drop: Indicates hydration
-- Lightning bolt: Indicates energy
-- Grenades
-
-**Top right**
-- Battery icon: Indicates raid time. When the last bar flashes red, there are 10 minutes left in the raid.
-- Wi-Fi icon: Purely decorative
-
-**Bottom left**
-- Raid information
-
-**Top center**
-- Decorative recording icon
-- Operator’s name
+- Minimalistic HUD
 
 
 # BUG REPORTS

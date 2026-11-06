@@ -50,7 +50,9 @@ internal sealed class BodycamOverlay
 
     private Texture2D _scanlineTexture;
     private Texture2D _recordingDotTexture;
-    private Texture2D _axonLogoTexture;
+    private Texture2D _recordingLabelTexture;
+    private Texture2D _dimRecordingLabelTexture;
+    private Texture2D _senzeLogoTexture;
     private Texture2D[] _statusFillTextures;
     private Texture2D[] _statusOutlineTextures;
     private Texture2D _disconnectNoiseTexture;
@@ -88,8 +90,10 @@ internal sealed class BodycamOverlay
     private GUIStyle _magazineCountStyle;
     private GUIStyle _magazineAmmoStyle;
     private GUIStyle _disconnectStyle;
+    private Font _bahnschriftFont;
     private int _cachedFontSize;
     private int _cachedMagazineFontSize;
+    private int _cachedRecordingTextFontSize;
     private Player _damageOwner;
     private Player _raidOwner;
     private string _raidLocationName = "UNKNOWN";
@@ -160,6 +164,8 @@ internal sealed class BodycamOverlay
 
         var previousDepth = GUI.depth;
         var previousColor = GUI.color;
+        var previousMatrix = GUI.matrix;
+        GUI.matrix = Matrix4x4.identity;
         GUI.depth = -1000;
 
         if (_disconnected)
@@ -170,27 +176,7 @@ internal sealed class BodycamOverlay
         {
             DrawLensEffects();
             DrawNativeLensDamage();
-
-            if (_settings.OverlayPreset.Value == HudPreset.Minimalistic)
-            {
-                DrawPresetCornerMarkers(scale);
-                DrawMinimalisticHeader(scale);
-            }
-            else if (_settings.OverlayPreset.Value == HudPreset.RealBodycam)
-            {
-                DrawPresetCornerMarkers(scale);
-                DrawRealBodycamStamp(scale);
-            }
-            else
-            {
-                DrawCornerMarkers(scale);
-                DrawSideMarkers(scale);
-                DrawRecordingHeader(scale);
-                DrawWirelessStatus(scale);
-                DrawBattery(scale);
-                DrawRaidInformation(scale);
-                DrawStatusHud(scale);
-            }
+            DrawRealBodycamStamp(scale);
 
             DrawMagazineCheckLabel(scale);
             DrawElectricalInterference();
@@ -198,6 +184,7 @@ internal sealed class BodycamOverlay
 
         GUI.color = previousColor;
         GUI.depth = previousDepth;
+        GUI.matrix = previousMatrix;
     }
 
     internal void Dispose()
@@ -208,7 +195,9 @@ internal sealed class BodycamOverlay
         DestroyFaceMosaicRenderer();
         DestroyTexture(_scanlineTexture);
         DestroyTexture(_recordingDotTexture);
-        DestroyTexture(_axonLogoTexture);
+        DestroyTexture(_dimRecordingLabelTexture);
+        DestroyTexture(_recordingLabelTexture);
+        DestroyTexture(_senzeLogoTexture);
         DestroyTexture(_disconnectNoiseTexture);
         if (_wifiTextures != null)
         {
@@ -225,6 +214,10 @@ internal sealed class BodycamOverlay
             }
         }
         DestroyTexture(_batteryWarningTexture);
+        if (_bahnschriftFont != null)
+        {
+            UnityEngine.Object.Destroy(_bahnschriftFont);
+        }
         if (_nativeLensDamageTexture != null)
         {
             UnityEngine.Object.Destroy(_nativeLensDamageTexture);
@@ -246,11 +239,14 @@ internal sealed class BodycamOverlay
         }
         _scanlineTexture = null;
         _recordingDotTexture = null;
-        _axonLogoTexture = null;
+        _recordingLabelTexture = null;
+        _dimRecordingLabelTexture = null;
+        _senzeLogoTexture = null;
         _disconnectNoiseTexture = null;
         _wifiTextures = null;
         _batteryTextures = null;
         _batteryWarningTexture = null;
+        _bahnschriftFont = null;
         _nativeLensDamageTexture = null;
         _nativeLensDamageDisplayTexture = null;
         _statusFillTextures = null;
@@ -1309,51 +1305,97 @@ internal sealed class BodycamOverlay
 
     private void DrawRealBodycamStamp(float scale)
     {
-        var top = Screen.height - 156f * scale;
-        var logoRect = new Rect(52f * scale, top + 8f * scale, 82f * scale, 82f * scale);
-        GUI.color = Color.white;
-        GUI.DrawTexture(logoRect, _axonLogoTexture, ScaleMode.ScaleToFit, true);
-
-        var textLeft = 154f * scale;
-        var lineHeight = 27f * scale;
-        DrawShadowedLabel(
-            new Rect(textLeft, top, 58f * scale, lineHeight),
-            "REC",
-            _realBodycamPrimaryStyle);
-
-        if (Mathf.FloorToInt(Time.unscaledTime * 1.6f) % 2 == 0)
-        {
-            var dotSize = 17f * scale;
-            GUI.color = RecordingColor;
-            GUI.DrawTexture(
-                new Rect(textLeft + 42f * scale, top + 5f * scale, dotSize, dotSize),
-                _recordingDotTexture);
-        }
-
-        DrawShadowedLabel(
-            new Rect(textLeft + 70f * scale, top, 310f * scale, lineHeight),
-            "AXON BODY CAM™",
-            _realBodycamPrimaryStyle);
-
         var operatorName = _raidOwner?.Profile?.Info?.Nickname;
         if (string.IsNullOrWhiteSpace(operatorName))
         {
             operatorName = "OPERATOR";
         }
 
-        DrawShadowedLabel(
-            new Rect(textLeft, top + 27f * scale, 430f * scale, lineHeight),
-            $"OPERATOR: {operatorName.ToUpperInvariant()}",
-            _realBodycamSecondaryStyle);
-
         var raidTime = GetCurrentRaidWorldTime();
-        var displayedTime = raidTime.HasValue
-            ? raidTime.Value.ToString("HH:mm", CultureInfo.InvariantCulture)
-            : DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
-        var date = DateTime.Now.ToString("MMM dd yyyy", CultureInfo.InvariantCulture).ToUpperInvariant();
-        DrawShadowedLabel(
-            new Rect(textLeft, top + 54f * scale, 430f * scale, lineHeight),
-            $"{date} | {displayedTime}",
+        var displayedDateTime = raidTime.HasValue
+            ? raidTime.Value.ToString("yyyy-MM-dd    HH:mm:ss", CultureInfo.InvariantCulture)
+            : "---- -- --    --:--:--";
+        var lineOne = operatorName.ToUpperInvariant() + "    " + displayedDateTime;
+        const string lineTwo = "STS    BODY    4    SNZ: 20231402";
+
+        var top = 28f * scale;
+        var recordingScale = scale * _settings.RecordingLabelScale.Value;
+        var recordingWidth = 210f * recordingScale;
+        var recordingHeight = 54f * recordingScale;
+        var recordingLeft = 52f * scale;
+        var recordingTop = top;
+        var recordingOffsetX = _settings.RecordingLabelOffsetX.Value;
+        if (recordingOffsetX >= 0f)
+        {
+            recordingLeft = Mathf.Lerp(
+                recordingLeft,
+                Screen.width - 12f * scale - recordingWidth,
+                recordingOffsetX * 0.01f);
+        }
+        else
+        {
+            recordingLeft += recordingOffsetX * Screen.width * 0.01f;
+        }
+        var recordingOffsetY = _settings.RecordingLabelOffsetY.Value;
+        if (recordingOffsetY >= 0f)
+        {
+            recordingTop = Mathf.Lerp(
+                recordingTop,
+                Screen.height - 12f * scale - recordingHeight,
+                recordingOffsetY * 0.01f);
+        }
+        else
+        {
+            recordingTop += recordingOffsetY * Screen.height * 0.01f;
+        }
+        var recordingTexture = Mathf.FloorToInt(Time.unscaledTime * 2f) % 2 == 0
+            ? _recordingLabelTexture
+            : _dimRecordingLabelTexture;
+        if (recordingTexture != null)
+        {
+            Graphics.DrawTexture(
+                new Rect(recordingLeft, recordingTop, recordingWidth, recordingHeight),
+                recordingTexture);
+        }
+
+        var logoSize = 82f * scale * _settings.SenzeLogoScale.Value;
+        var rightMargin = 52f * scale;
+        var logoRect = new Rect(
+            Screen.width - rightMargin - logoSize + _settings.SenzeLogoOffsetX.Value * Screen.width * 0.01f,
+            top - 16f * scale + _settings.SenzeLogoOffsetY.Value * Screen.height * 0.01f,
+            logoSize,
+            logoSize);
+        GUI.color = Color.white;
+        if (_senzeLogoTexture != null)
+        {
+            GUI.DrawTexture(logoRect, _senzeLogoTexture, ScaleMode.ScaleToFit, true);
+        }
+
+        var textScale = scale * _settings.RecordingTextScale.Value;
+        var textWidth = Mathf.Max(
+            _realBodycamPrimaryStyle.CalcSize(new GUIContent(lineOne)).x,
+            _realBodycamSecondaryStyle.CalcSize(new GUIContent(lineTwo)).x) + 4f * scale;
+        var defaultTextRight = Screen.width - rightMargin - 100f * scale;
+        var textOffsetX = _settings.RecordingTextOffsetX.Value;
+        var textRight = defaultTextRight;
+        if (textOffsetX < 0f)
+        {
+            textRight = Mathf.Lerp(defaultTextRight, 12f * scale + textWidth, -textOffsetX * 0.01f);
+        }
+        else
+        {
+            textRight += textOffsetX * Screen.width * 0.01f;
+        }
+        var textLeft = textRight - textWidth;
+        var textTop = top + _settings.RecordingTextOffsetY.Value * Screen.height * 0.01f;
+        var lineHeight = 31f * textScale;
+        GUI.Label(
+            new Rect(textLeft, textTop, textWidth, lineHeight),
+            lineOne,
+            _realBodycamPrimaryStyle);
+        GUI.Label(
+            new Rect(textLeft, textTop + lineHeight, textWidth, lineHeight),
+            lineTwo,
             _realBodycamSecondaryStyle);
     }
 
@@ -1473,7 +1515,9 @@ internal sealed class BodycamOverlay
         var displayedTime = raidTime.HasValue
             ? raidTime.Value.ToString("HH:mm:ss", CultureInfo.InvariantCulture)
             : "--:--:--";
-        var date = DateTime.Now.ToString("MMMM dd, yyyy", CultureInfo.InvariantCulture);
+        var date = raidTime.HasValue
+            ? raidTime.Value.ToString("MMMM dd, yyyy", CultureInfo.InvariantCulture)
+            : "UNKNOWN DATE";
         var rect = new Rect(
             (52f + _settings.RaidInfoOffsetX.Value) * scale,
             Screen.height - 132f * scale + _settings.RaidInfoOffsetY.Value * scale,
@@ -1783,9 +1827,17 @@ internal sealed class BodycamOverlay
         {
             _recordingDotTexture = CreateDotTexture();
         }
-        if (_axonLogoTexture == null)
+        if (_recordingLabelTexture == null)
         {
-            _axonLogoTexture = CreateAxonLogoTexture();
+            _recordingLabelTexture = LoadEmbeddedTexture("SenzeBodycam.Assets.recording-label.png");
+        }
+        if (_dimRecordingLabelTexture == null && _recordingLabelTexture != null)
+        {
+            _dimRecordingLabelTexture = CreateDimRecordingLabelTexture(_recordingLabelTexture);
+        }
+        if (_senzeLogoTexture == null)
+        {
+            _senzeLogoTexture = LoadEmbeddedTexture("SenzeBodycam.Assets.SenzeBodycamLogo.png");
         }
         if (_statusFillTextures == null || _statusOutlineTextures == null)
         {
@@ -1825,25 +1877,32 @@ internal sealed class BodycamOverlay
 
     private void EnsureStyles(float scale)
     {
+        EnsureBahnschriftFont();
         var fontSize = Mathf.Max(11, Mathf.RoundToInt(18f * scale));
         var magazineScale = scale * Mathf.Clamp(_settings.MagazineCheckLabelScale.Value, 0.6f, 1.8f);
         var magazineFontSize = Mathf.Max(11, Mathf.RoundToInt(15f * magazineScale));
+        var recordingTextFontSize = Mathf.Max(8, Mathf.RoundToInt(22f * scale * _settings.RecordingTextScale.Value));
         if (_operatorStyle != null
             && _cachedFontSize == fontSize
-            && _cachedMagazineFontSize == magazineFontSize)
+            && _cachedMagazineFontSize == magazineFontSize
+            && _cachedRecordingTextFontSize == recordingTextFontSize)
         {
             return;
         }
 
         _cachedFontSize = fontSize;
         _cachedMagazineFontSize = magazineFontSize;
+        _cachedRecordingTextFontSize = recordingTextFontSize;
         _operatorStyle = CreateStyle(fontSize, TextAnchor.MiddleCenter, FontStyle.Bold);
         _smallStyle = CreateStyle(Mathf.Max(10, Mathf.RoundToInt(13f * scale)), TextAnchor.MiddleCenter, FontStyle.Bold);
-        _presetHeaderStyle = CreateStyle(Mathf.Max(13, Mathf.RoundToInt(22f * scale)), TextAnchor.MiddleCenter, FontStyle.Bold);
-        _presetHeaderStyle.normal.textColor = new Color(0.96f, 0.96f, 0.96f, 0.96f);
-        _realBodycamPrimaryStyle = CreateStyle(Mathf.Max(12, Mathf.RoundToInt(19f * scale)), TextAnchor.MiddleLeft, FontStyle.Bold);
+        _presetHeaderStyle = CreateStyle(Mathf.Max(18, Mathf.RoundToInt(36f * scale)), TextAnchor.UpperLeft, FontStyle.Normal);
+        _presetHeaderStyle.font = _bahnschriftFont;
+        _presetHeaderStyle.normal.textColor = new Color(0.95f, 0.025f, 0.02f, 1f);
+        _realBodycamPrimaryStyle = CreateStyle(recordingTextFontSize, TextAnchor.MiddleRight, FontStyle.Normal);
+        _realBodycamPrimaryStyle.font = _bahnschriftFont;
         _realBodycamPrimaryStyle.normal.textColor = new Color(0.96f, 0.96f, 0.96f, 0.96f);
-        _realBodycamSecondaryStyle = CreateStyle(Mathf.Max(11, Mathf.RoundToInt(17f * scale)), TextAnchor.MiddleLeft, FontStyle.Bold);
+        _realBodycamSecondaryStyle = CreateStyle(recordingTextFontSize, TextAnchor.MiddleRight, FontStyle.Normal);
+        _realBodycamSecondaryStyle.font = _bahnschriftFont;
         _realBodycamSecondaryStyle.normal.textColor = new Color(0.96f, 0.96f, 0.96f, 0.96f);
         _statusCountStyle = CreateStyle(Mathf.Max(12, Mathf.RoundToInt(18f * scale)), TextAnchor.MiddleLeft, FontStyle.Bold);
         _leftStyle = CreateStyle(Mathf.Max(10, Mathf.RoundToInt(15f * scale)), TextAnchor.LowerLeft, FontStyle.Bold);
@@ -1852,6 +1911,18 @@ internal sealed class BodycamOverlay
         _magazineAmmoStyle = CreateStyle(Mathf.Max(10, Mathf.RoundToInt(13f * magazineScale)), TextAnchor.MiddleLeft, FontStyle.Normal);
         _disconnectStyle = CreateStyle(Mathf.Max(26, Mathf.RoundToInt(46f * scale)), TextAnchor.MiddleCenter, FontStyle.Bold);
         _disconnectStyle.normal.textColor = new Color(0.78f, 0.035f, 0.025f, 0.96f);
+    }
+
+    private void EnsureBahnschriftFont()
+    {
+        if (_bahnschriftFont != null)
+        {
+            return;
+        }
+
+        _bahnschriftFont = Font.CreateDynamicFontFromOSFont(
+            new[] { "Bahnschrift Light", "Bahnschrift" },
+            48);
     }
 
     private static GUIStyle CreateStyle(int fontSize, TextAnchor alignment, FontStyle fontStyle)
@@ -1925,49 +1996,6 @@ internal sealed class BodycamOverlay
                 var dy = (y + 0.5f) / size * 2f - 1f;
                 var alpha = Mathf.Clamp01((1f - Mathf.Sqrt(dx * dx + dy * dy)) * 8f);
                 pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
-            }
-        }
-
-        texture.SetPixels(pixels);
-        texture.Apply(false, true);
-        return texture;
-    }
-
-    private static Texture2D CreateAxonLogoTexture()
-    {
-        const int size = 96;
-        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
-        {
-            name = "Senze Bodycam AXON Logo",
-            filterMode = FilterMode.Bilinear,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-
-        var outerTriangle = new[]
-        {
-            new Vector2(0.50f, 0.03f),
-            new Vector2(0.98f, 0.94f),
-            new Vector2(0.02f, 0.94f)
-        };
-        var innerTriangle = new[]
-        {
-            new Vector2(0.50f, 0.28f),
-            new Vector2(0.76f, 0.77f),
-            new Vector2(0.24f, 0.77f)
-        };
-        var pixels = new Color[size * size];
-        var yellow = new Color(1f, 0.82f, 0f, 1f);
-
-        for (var y = 0; y < size; y++)
-        {
-            for (var x = 0; x < size; x++)
-            {
-                var normalizedX = (x + 0.5f) / size;
-                var normalizedY = 1f - (y + 0.5f) / size;
-                var inOuter = IsInsidePolygon(outerTriangle, normalizedX, normalizedY);
-                var inInner = IsInsidePolygon(innerTriangle, normalizedX, normalizedY);
-                pixels[y * size + x] = inOuter && !inInner ? yellow : Color.clear;
             }
         }
 
@@ -2177,6 +2205,67 @@ internal sealed class BodycamOverlay
         }
 
         return textures.ToArray();
+    }
+
+    private static Texture2D LoadEmbeddedTexture(string resourceName)
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        using (var stream = assembly.GetManifestResourceStream(resourceName))
+        {
+            if (stream == null)
+            {
+                return null;
+            }
+
+            var data = new byte[checked((int)stream.Length)];
+            var offset = 0;
+            while (offset < data.Length)
+            {
+                var read = stream.Read(data, offset, data.Length - offset);
+                if (read <= 0)
+                {
+                    break;
+                }
+                offset += read;
+            }
+
+            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false)
+            {
+                name = resourceName,
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp,
+                hideFlags = HideFlags.HideAndDontSave
+            };
+            if (offset == data.Length && ImageConversion.LoadImage(texture, data, false))
+            {
+                return texture;
+            }
+
+            DestroyTexture(texture);
+            return null;
+        }
+    }
+
+    private static Texture2D CreateDimRecordingLabelTexture(Texture2D source)
+    {
+        var pixels = source.GetPixels32();
+        for (var index = 0; index < pixels.Length; index++)
+        {
+            var pixel = pixels[index];
+            pixel.a = (byte)Mathf.RoundToInt(pixel.a * 0.18f);
+            pixels[index] = pixel;
+        }
+
+        var texture = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false)
+        {
+            name = "Senze Bodycam Dim REC Label",
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+        texture.SetPixels32(pixels);
+        texture.Apply(false, false);
+        return texture;
     }
 
     private static void RecolorHudTexture(Texture2D texture, string resourceName)

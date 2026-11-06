@@ -78,12 +78,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Assets\wifi-low.png" />
-    <EmbeddedResource Include="Assets\wifi-medium.png" />
-    <EmbeddedResource Include="Assets\wifi-high.png" />
-    <EmbeddedResource Include="Assets\battery-low.png" />
-    <EmbeddedResource Include="Assets\battery-medium.png" />
-    <EmbeddedResource Include="Assets\battery-high.png" />
+    <EmbeddedResource Include="..\SenzeBodycamLogo.png" LogicalName="SenzeBodycam.Assets.SenzeBodycamLogo.png" />
+    <EmbeddedResource Include="Assets\recording-label.png" />
   </ItemGroup>
 
   <Target Name="ValidateSPTReferences" BeforeTargets="ResolveReferences">

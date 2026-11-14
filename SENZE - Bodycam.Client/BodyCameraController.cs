@@ -11,6 +11,10 @@ namespace SenzeBodycam;
 
 internal sealed class BodyCameraController
 {
+    private const float FlashlightIntensity = 2f;
+    private const float FlashlightRange = 25f;
+    private const float FlashlightBeamAngle = 55f;
+
     private static readonly AccessTools.FieldRef<ProceduralWeaponAnimation, float> AimingWeightRef =
         AccessTools.FieldRefAccess<ProceduralWeaponAnimation, float>("_aimingWeight");
 
@@ -18,6 +22,8 @@ internal sealed class BodyCameraController
     private readonly ManualLogSource _logger;
     private Player _player;
     private Camera _camera;
+    private Light _flashlight;
+    private bool _flashlightEnabled;
     private float _nativeFieldOfView;
     private bool _fieldOfViewOverridden;
     private Quaternion _followRotation;
@@ -98,6 +104,7 @@ internal sealed class BodyCameraController
     private float _colorGradingSaturation;
     private float _colorGradingContrast;
     private Vector4 _colorGradingGamma;
+    private Color _colorGradingColorFilter;
     private Quaternion _previousTargetRotation;
     private bool _hasTargetRotationSample;
     private Vector3 _turnRotation;
@@ -144,8 +151,30 @@ internal sealed class BodyCameraController
 
         if (ShortcutInput.IsDown(_settings.ToggleLowLightModeKey.Value))
         {
-            _settings.LowLightModeEnabled.Value = !_settings.LowLightModeEnabled.Value;
-            _logger.LogInfo($"Low-Light Mode {(_settings.LowLightModeEnabled.Value ? "enabled" : "disabled")}.");
+            if (_settings.NightVisionEnabled.Value)
+            {
+                _settings.NightVisionEnabled.Value = false;
+                _settings.LowLightModeEnabled.Value = false;
+                _logger.LogInfo("Vision mode: Off.");
+            }
+            else if (_settings.LowLightModeEnabled.Value)
+            {
+                _settings.LowLightModeEnabled.Value = false;
+                _settings.NightVisionEnabled.Value = true;
+                _logger.LogInfo("Vision mode: Night Vision.");
+            }
+            else
+            {
+                _settings.LowLightModeEnabled.Value = true;
+                _settings.NightVisionEnabled.Value = false;
+                _logger.LogInfo("Vision mode: Low-Light.");
+            }
+        }
+
+        if (ShouldDrawOverlay && ShortcutInput.IsDown(_settings.ToggleFlashlightKey.Value))
+        {
+            _flashlightEnabled = !_flashlightEnabled;
+            _logger.LogInfo($"Bodycam flashlight {(_flashlightEnabled ? "enabled" : "disabled")}.");
         }
     }
 
@@ -173,6 +202,10 @@ internal sealed class BodyCameraController
         {
             RestoreFieldOfView();
         }
+        if (!active || !_flashlightEnabled)
+        {
+            DisableFlashlight();
+        }
         var deltaTime = Mathf.Clamp(Time.deltaTime, 0f, 0.05f);
         if (deltaTime <= 0f)
         {
@@ -191,6 +224,7 @@ internal sealed class BodyCameraController
         var ribcage = player.PlayerBones?.Ribcage?.Original;
         if (ribcage == null)
         {
+            DisableFlashlight();
             return;
         }
 
@@ -246,6 +280,7 @@ internal sealed class BodyCameraController
         _viewRotationCorrection = finalRotation * Quaternion.Inverse(baseRotation);
         _hasViewRotationCorrection = true;
         ApplyFieldOfView(nativeAdsBlend);
+        UpdateFlashlight();
     }
 
     internal void AddShotKick(Player player)
@@ -421,6 +456,8 @@ internal sealed class BodyCameraController
 
     internal void Reset()
     {
+        DestroyFlashlight();
+        _flashlightEnabled = false;
         RestoreFieldOfView();
         RestoreLensDistortion(true);
         RestoreVignette(true);
@@ -520,8 +557,9 @@ internal sealed class BodyCameraController
         }
 
         TrackVignette(vignette);
+        var nightVision = _settings.NightVisionEnabled.Value;
         var strength = Mathf.Clamp(_settings.EdgeVignetteStrength.Value, 0f, 0.45f);
-        if (!_settings.ModEnabled.Value || !_settings.BodyCameraEnabled.Value || strength <= 0.001f)
+        if (!_settings.ModEnabled.Value || !_settings.BodyCameraEnabled.Value || (!nightVision && strength <= 0.001f))
         {
             RestoreVignette(false);
             return;
@@ -532,8 +570,8 @@ internal sealed class BodyCameraController
         vignette.mode.value = VignetteMode.Classic;
         vignette.color.value = Color.black;
         vignette.center.value = new Vector2(0.5f, 0.5f);
-        vignette.intensity.value = Mathf.Min(0.45f, strength);
-        vignette.smoothness.value = 0.16f;
+        vignette.intensity.value = nightVision ? 0.82f : Mathf.Min(0.45f, strength);
+        vignette.smoothness.value = nightVision ? 0.55f : 0.16f;
         vignette.roundness.value = 1f;
         vignette.rounded.value = true;
     }
@@ -569,10 +607,15 @@ internal sealed class BodyCameraController
         }
 
         TrackBloom(bloom);
-        var lowLightGain = GetLowLightGain();
-        var lowLightBlend = Mathf.Clamp01(lowLightGain / 1.5f);
+        var nightVision = _settings.NightVisionEnabled.Value;
+        var visionGain = nightVision
+            ? Mathf.Clamp(_settings.NightVisionGain.Value, 0f, 4f)
+            : GetLowLightGain();
+        var lowLightBlend = Mathf.Clamp01(visionGain / 1.5f);
         var bodycamBloom = _settings.HighlightBloomStrength.Value;
-        var strength = Mathf.Lerp(bodycamBloom, bodycamBloom * 0.6f, lowLightBlend);
+        var strength = nightVision
+            ? bodycamBloom * 1.4f
+            : Mathf.Lerp(bodycamBloom, bodycamBloom * 0.6f, lowLightBlend);
         if (!_settings.ModEnabled.Value || !_settings.BodyCameraEnabled.Value || strength <= 0.001f)
         {
             RestoreBloom(false);
@@ -582,7 +625,7 @@ internal sealed class BodyCameraController
         bloom.active = true;
         bloom.enabled.value = true;
         bloom.intensity.value = strength;
-        bloom.threshold.value = Mathf.Lerp(1.2f, 1.35f, lowLightBlend);
+        bloom.threshold.value = nightVision ? 0.9f : Mathf.Lerp(1.2f, 1.35f, lowLightBlend);
         bloom.softKnee.value = 0.45f;
         bloom.diffusion.value = Mathf.Lerp(4.2f, 3.8f, lowLightBlend);
         bloom.fastMode.value = true;
@@ -619,10 +662,17 @@ internal sealed class BodyCameraController
         }
 
         TrackGrain(grain);
-        var lowLightNoise = _settings.LowLightModeEnabled.Value
-            ? Mathf.Clamp01(_settings.LowLightNoiseStrength.Value)
-            : 0f;
-        var intensity = Mathf.Clamp01(_settings.SensorNoiseStrength.Value * 0.55f + lowLightNoise * 0.7f);
+        var nightVision = _settings.NightVisionEnabled.Value;
+        var visionNoise = 0f;
+        if (nightVision)
+        {
+            visionNoise = Mathf.Clamp01(_settings.NightVisionNoiseStrength.Value);
+        }
+        else if (_settings.LowLightModeEnabled.Value)
+        {
+            visionNoise = Mathf.Clamp01(_settings.LowLightNoiseStrength.Value);
+        }
+        var intensity = Mathf.Clamp01(_settings.SensorNoiseStrength.Value * 0.55f + visionNoise * 0.7f);
         if (!_settings.ModEnabled.Value || !_settings.BodyCameraEnabled.Value || intensity <= 0.001f)
         {
             RestoreGrain(false);
@@ -633,8 +683,8 @@ internal sealed class BodyCameraController
         grain.enabled.value = true;
         grain.colored.value = false;
         grain.intensity.value = intensity;
-        grain.size.value = Mathf.Lerp(1.1f, 1.45f, lowLightNoise);
-        grain.lumContrib.value = Mathf.Lerp(0.65f, 0.3f, lowLightNoise);
+        grain.size.value = Mathf.Lerp(1.1f, nightVision ? 1.8f : 1.45f, visionNoise);
+        grain.lumContrib.value = Mathf.Lerp(0.65f, 0.3f, visionNoise);
     }
 
     private void ApplyColorGrading(PostProcessLayer postProcessLayer)
@@ -646,13 +696,16 @@ internal sealed class BodyCameraController
         }
 
         TrackColorGrading(colorGrading);
-        var lowLightGain = GetLowLightGain();
-        var lowLightBlend = Mathf.Clamp01(lowLightGain / 1.5f);
-        var gainBlend = Mathf.Clamp01(lowLightGain / 4f);
-        var exposure = _settings.CameraExposure.Value + lowLightGain * 0.1f;
+        var nightVision = _settings.NightVisionEnabled.Value;
+        var visionGain = nightVision
+            ? Mathf.Clamp(_settings.NightVisionGain.Value, 0f, 4f)
+            : GetLowLightGain();
+        var lowLightBlend = Mathf.Clamp01(visionGain / 1.5f);
+        var gainBlend = Mathf.Clamp01(visionGain / 4f);
+        var exposure = _settings.CameraExposure.Value + visionGain * (nightVision ? 0.18f : 0.1f);
         if (!_settings.ModEnabled.Value
             || !_settings.BodyCameraEnabled.Value
-            || (Mathf.Abs(exposure) <= 0.001f && lowLightBlend <= 0.001f))
+            || (Mathf.Abs(exposure) <= 0.001f && lowLightBlend <= 0.001f && !nightVision))
         {
             RestoreColorGrading(false);
             return;
@@ -661,16 +714,17 @@ internal sealed class BodyCameraController
         colorGrading.active = true;
         colorGrading.enabled.value = true;
         colorGrading.postExposure.value = _colorGradingPostExposure + exposure;
-        colorGrading.saturation.value = _colorGradingSaturation - lowLightBlend * 88f;
-        colorGrading.contrast.value = _colorGradingContrast - lowLightBlend * 6f;
+        colorGrading.saturation.value = nightVision ? 0f : _colorGradingSaturation - lowLightBlend * 88f;
+        colorGrading.contrast.value = nightVision ? _colorGradingContrast + 5f : _colorGradingContrast - lowLightBlend * 6f;
+        colorGrading.colorFilter.value = nightVision ? new Color(0.25f, 1f, 0.2f, 1f) : _colorGradingColorFilter;
         var gamma = _colorGradingGamma;
-        gamma.w += gainBlend * 0.55f;
+        gamma.w += gainBlend * (nightVision ? 0.7f : 0.55f);
         colorGrading.gamma.value = gamma;
     }
 
     private float GetLowLightGain()
     {
-        if (!_settings.LowLightModeEnabled.Value)
+        if (!_settings.LowLightModeEnabled.Value || _settings.NightVisionEnabled.Value)
         {
             return 0f;
         }
@@ -911,6 +965,7 @@ internal sealed class BodyCameraController
         _colorGradingSaturation = colorGrading.saturation.value;
         _colorGradingContrast = colorGrading.contrast.value;
         _colorGradingGamma = colorGrading.gamma.value;
+        _colorGradingColorFilter = colorGrading.colorFilter.value;
     }
 
     private void RestoreColorGrading(bool forget)
@@ -923,6 +978,7 @@ internal sealed class BodyCameraController
             _colorGrading.saturation.value = _colorGradingSaturation;
             _colorGrading.contrast.value = _colorGradingContrast;
             _colorGrading.gamma.value = _colorGradingGamma;
+            _colorGrading.colorFilter.value = _colorGradingColorFilter;
         }
 
         if (forget)
@@ -938,6 +994,49 @@ internal sealed class BodyCameraController
         _camera = camera;
         _nativeFieldOfView = camera.fieldOfView;
         PrepareForActivation(camera.transform.rotation);
+    }
+
+    private void UpdateFlashlight()
+    {
+        if (!_flashlightEnabled || _camera == null)
+        {
+            DisableFlashlight();
+            return;
+        }
+
+        if (_flashlight == null)
+        {
+            var flashlightObject = new GameObject("Senze Bodycam Flashlight");
+            flashlightObject.transform.SetParent(_camera.transform, false);
+            flashlightObject.transform.localPosition = new Vector3(0f, -0.04f, 0.1f);
+            _flashlight = flashlightObject.AddComponent<Light>();
+            _flashlight.type = LightType.Spot;
+            _flashlight.color = new Color(1f, 0.96f, 0.86f);
+            _flashlight.shadows = LightShadows.Soft;
+            _flashlight.intensity = FlashlightIntensity;
+            _flashlight.range = FlashlightRange;
+            _flashlight.spotAngle = FlashlightBeamAngle;
+        }
+
+        _flashlight.enabled = true;
+    }
+
+    private void DisableFlashlight()
+    {
+        if (_flashlight != null)
+        {
+            _flashlight.enabled = false;
+        }
+    }
+
+    private void DestroyFlashlight()
+    {
+        if (_flashlight != null)
+        {
+            _flashlight.enabled = false;
+            UnityEngine.Object.Destroy(_flashlight.gameObject);
+            _flashlight = null;
+        }
     }
 
     private void UpdateNativeFieldOfView(PlayerCameraController cameraController)

@@ -26,6 +26,10 @@ internal sealed class ModConfig
     internal ConfigEntry<KeyboardShortcut> ToggleLowLightModeKey { get; }
     internal ConfigEntry<float> LowLightGain { get; }
     internal ConfigEntry<float> LowLightNoiseStrength { get; }
+    internal ConfigEntry<bool> NightVisionEnabled { get; }
+    internal ConfigEntry<float> NightVisionGain { get; }
+    internal ConfigEntry<float> NightVisionNoiseStrength { get; }
+    internal ConfigEntry<KeyboardShortcut> ToggleFlashlightKey { get; }
 
     internal ConfigEntry<bool> OverlayEnabled { get; }
     internal ConfigEntry<float> SensorNoiseStrength { get; }
@@ -130,16 +134,32 @@ internal sealed class ModConfig
             "13 - Low-Light Mode",
             "Enabled",
             false,
-            "Brightens dark scenes like a digital bodycam sensor. This is not green night vision.");
+            "Brightens dark scenes like a digital bodycam sensor. F9 cycles Off, Low-Light, and Night Vision.");
         ToggleLowLightModeKey = config.Bind(
             "13 - Low-Light Mode",
             "Toggle Key",
             new KeyboardShortcut(KeyCode.F9),
-            "Press this key to turn Low-Light Mode on or off. The choice is saved.");
+            "Press this key to cycle Off, Low-Light, and Night Vision. The choice is saved.");
         LowLightGain = BindRange(config, "13 - Low-Light Mode", "Digital Gain", 2.49f, 0f, 4f,
             "Raises the whole image like a monitor gamma control. Higher values reveal more dark detail and add slightly more grain.");
         LowLightNoiseStrength = BindRange(config, "13 - Low-Light Mode", "Noise Strength", 0.3f, 0f, 1f,
             "Adds moving monochrome sensor grain while Low-Light Mode is active. 0 = no extra grain. 1 = very strong grain.");
+
+        NightVisionEnabled = config.Bind(
+            "13.5 - Night Vision",
+            "Enabled",
+            false,
+            "Shows a green, grainy night-vision image with a narrow circular view. F9 cycles the vision modes.");
+        NightVisionGain = BindRange(config, "13.5 - Night Vision", "Digital Gain", 2.6f, 0f, 4f,
+            "Brightens the night-vision image. Higher values also wash out bright lights.");
+        NightVisionNoiseStrength = BindRange(config, "13.5 - Night Vision", "Noise Strength", 0.65f, 0f, 1f,
+            "Adds coarse monochrome night-vision grain. 0 = no extra grain. 1 = very strong grain.");
+
+        ToggleFlashlightKey = config.Bind(
+            "13.6 - Bodycam Flashlight",
+            "Toggle Key",
+            new KeyboardShortcut(KeyCode.H),
+            "Press this key in a raid to turn the bodycam flashlight on or off. It starts off each raid.");
 
         OverlayEnabled = config.Bind(
             "14 - Bodycam Overlay",

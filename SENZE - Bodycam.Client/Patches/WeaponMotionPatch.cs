@@ -10,6 +10,6 @@ internal static class WeaponMotionPatch
     [HarmonyPriority(Priority.Last)]
     private static void Postfix(ProceduralWeaponAnimation __instance)
     {
-        PatchContext.BodyCamera?.ApplyWeaponCornerPeek(__instance);
+        PatchContext.BodyCamera?.ApplyWeaponMotion(__instance);
     }
 }

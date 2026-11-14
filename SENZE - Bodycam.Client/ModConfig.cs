@@ -110,25 +110,25 @@ internal sealed class ModConfig
             "Moves the camera sideways only while aiming. Positive = right. Negative = left. Large values can move the sight away from the screen centre.");
         AdsOffsetY = BindRange(config, "11.5 - ADS Position", "ADS Offset Y", 0f, -0.15f, 0.3f,
             "Moves the camera up or down only while aiming. Positive = up. Negative = down. Large values can move the sight away from the screen centre.");
-        AdsOffsetZ = BindRange(config, "11.5 - ADS Position", "ADS Offset Z", -0.072f, -0.15f, 0.25f,
+        AdsOffsetZ = BindRange(config, "11.5 - ADS Position", "ADS Offset Z", 0.021f, -0.15f, 0.25f,
             "Moves the camera forward or backward only while aiming. Positive = forward. Negative = backward.");
 
         HorizontalFieldOfView = BindRange(config, "11.6 - Field of View", "Horizontal FOV", 120f, 120f, 140f,
-            "Horizontal bodycam view angle while not aiming. ADS uses the game's normal field of view.");
+            "Horizontal bodycam view angle. The same view angle stays active while aiming.");
 
-        CameraWeight = BindRange(config, "12 - Bodycam Motion", "Camera Weight", 0.7f, 0f, 1f,
+        CameraWeight = BindRange(config, "12 - Bodycam Motion", "Camera Weight", 0.8f, 0f, 1f,
             "How heavily the camera follows the weapon. Higher = more lag and softer turns. 0 = direct Tarkov turning.");
         MovementIntensity = BindRange(config, "12 - Bodycam Motion", "Movement Intensity", 1.41f, 0f, 2f,
             "Camera movement while walking, running, starting, stopping, and strafing. This also controls the walk and run head bob. 0 = off.");
-        ShotReaction = BindRange(config, "12 - Bodycam Motion", "Shot Reaction", 1.6f, 0f, 2f,
-            "Camera kick when firing. This does not change weapon recoil. 0 = off.");
+        ShotReaction = BindRange(config, "12 - Bodycam Motion", "Shot Reaction", 0.71f, 0f, 2f,
+            "Bodycam shake and visible weapon kick when firing. Tarkov recoil values stay unchanged. 0 = off.");
         CornerPeekEnabled = config.Bind(
             "12.5 - Experimental Weapon Motion",
             "Corner Peek (Experimental)",
             false,
-            "Rotates the weapon toward nearby cover edges while not aiming. This never runs in ADS.");
+            "Rolls the camera and rotates the weapon near cover edges. This never runs in ADS.");
         CornerPeekStrength = BindRange(config, "12.5 - Experimental Weapon Motion", "Corner Peek Strength (Experimental)", 0.504038f, 0f, 2f,
-            "Strength of the automatic weapon yaw and cant near cover. 0 = off. This never affects ADS.");
+            "Strength of camera roll and weapon cant near cover. 0 = off. This never affects ADS.");
 
         LowLightModeEnabled = config.Bind(
             "13 - Low-Light Mode",
@@ -142,7 +142,7 @@ internal sealed class ModConfig
             "Press this key to cycle Off, Low-Light, and Night Vision. The choice is saved.");
         LowLightGain = BindRange(config, "13 - Low-Light Mode", "Digital Gain", 2.49f, 0f, 4f,
             "Raises the whole image like a monitor gamma control. Higher values reveal more dark detail and add slightly more grain.");
-        LowLightNoiseStrength = BindRange(config, "13 - Low-Light Mode", "Noise Strength", 0.3f, 0f, 1f,
+        LowLightNoiseStrength = BindRange(config, "13 - Low-Light Mode", "Noise Strength", 0.7f, 0f, 1f,
             "Adds moving monochrome sensor grain while Low-Light Mode is active. 0 = no extra grain. 1 = very strong grain.");
 
         NightVisionEnabled = config.Bind(
@@ -183,7 +183,7 @@ internal sealed class ModConfig
             "Glow from overexposed lights and reflections. 0 = off. Keep this low for a realistic bodycam image.");
         MotionBlurStrength = BindRange(config, "14.1 - Bodycam Lens", "Motion Blur", 0.08f, 0f, 1f,
             "Small amount of camera smear during fast movement. 0 = off. High values look cinematic rather than realistic.");
-        CameraExposure = BindRange(config, "14.1 - Bodycam Lens", "Camera Exposure", 0.44f, -1f, 1f,
+        CameraExposure = BindRange(config, "14.1 - Bodycam Lens", "Camera Exposure", 0f, -1f, 1f,
             "Camera image brightness. Positive = brighter. Negative = darker. 0 = Tarkov default.");
         EdgeVignetteStrength = BindRange(config, "14.1 - Bodycam Lens", "Edge Vignette", 0.337f, 0f, 0.45f,
             "Darkens only the outer lens edge. The image centre stays clear. 0 = off.");

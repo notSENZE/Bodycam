@@ -6,16 +6,6 @@ namespace SenzeBodycam.Patches;
 [HarmonyPatch(typeof(Player.FirearmController), nameof(Player.FirearmController.Shot))]
 internal static class FirearmShotPatch
 {
-    [HarmonyPrefix]
-    private static void Prefix(Player.FirearmController __instance)
-    {
-        var player = __instance?._player;
-        if (player?.IsYourPlayer == true)
-        {
-            PatchContext.BodyCamera?.PrepareForShot(player);
-        }
-    }
-
     [HarmonyPostfix]
     private static void Postfix(Player.FirearmController __instance)
     {

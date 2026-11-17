@@ -28,17 +28,6 @@ internal sealed class BodycamOverlay
     private static readonly Color HudColor = new Color(0.64f, 0.65f, 0.62f, 0.82f);
     private static readonly Color TextColor = new Color(0.78f, 0.79f, 0.76f, 0.91f);
     private static readonly Color ShadowColor = new Color(0.01f, 0.012f, 0.01f, 0.62f);
-    private static readonly Color RecordingColor = new Color(0.74f, 0.08f, 0.06f, 0.94f);
-    private static readonly Vector2[] LightningPoints =
-    {
-        new Vector2(0.10f, 0.94f),
-        new Vector2(-0.58f, 0.02f),
-        new Vector2(-0.18f, 0.02f),
-        new Vector2(-0.42f, -0.94f),
-        new Vector2(0.62f, 0.18f),
-        new Vector2(0.18f, 0.18f),
-        new Vector2(0.48f, 0.94f)
-    };
 
     private readonly ModConfig _settings;
     private readonly BodyCameraController _bodyCamera;
@@ -49,19 +38,10 @@ internal sealed class BodycamOverlay
     private readonly System.Random _hudRandom = new System.Random();
 
     private Texture2D _scanlineTexture;
-    private Texture2D _recordingDotTexture;
     private Texture2D _recordingLabelTexture;
     private Texture2D _dimRecordingLabelTexture;
     private Texture2D _senzeLogoTexture;
-    private Texture2D[] _statusFillTextures;
-    private Texture2D[] _statusOutlineTextures;
     private Texture2D _disconnectNoiseTexture;
-    private Texture2D[] _wifiTextures;
-    private Texture2D[] _batteryTextures;
-    private Texture2D _batteryWarningTexture;
-    private Camera _nativeRainCamera;
-    private RainScreenDrops _nativeRainScreenDrops;
-    private bool _nativeRainGlassForced;
     private Camera _faceCaptureCamera;
     private FaceMosaicCapture _faceMosaicCapture;
     private Mesh _faceMosaicMesh;
@@ -74,19 +54,16 @@ internal sealed class BodycamOverlay
     private float _nativeVisorScratchIntensity;
     private float _nativeVisorDistortIntensity;
     private float _nativeVisorBlurSize;
+    private int _nativeVisorDownsample;
+    private int _nativeVisorBlurIterations;
     private float _nativeVisorMinLightValue;
     private bool _nativeVisorAffectedByLight;
     private RenderTexture _nativeLensDamageTexture;
     private Texture2D _nativeLensDamageDisplayTexture;
     private int _nativeLensHitCount;
     private bool _nativeLensDamageDirty;
-    private GUIStyle _operatorStyle;
-    private GUIStyle _smallStyle;
-    private GUIStyle _presetHeaderStyle;
     private GUIStyle _realBodycamPrimaryStyle;
     private GUIStyle _realBodycamSecondaryStyle;
-    private GUIStyle _statusCountStyle;
-    private GUIStyle _leftStyle;
     private GUIStyle _magazineCountStyle;
     private GUIStyle _magazineAmmoStyle;
     private GUIStyle _disconnectStyle;
@@ -96,13 +73,8 @@ internal sealed class BodycamOverlay
     private int _cachedRecordingTextFontSize;
     private Player _damageOwner;
     private Player _raidOwner;
-    private string _raidLocationName = "UNKNOWN";
     private bool _disconnected;
-    private int _wifiBars = 3;
-    private float _nextWifiChange;
     private float _nextNoiseUpdate;
-    private float _nextFlickerJitterUpdate;
-    private float _flickerJitter = 0.5f;
     private float _interferenceStartedAt = -1f;
     private float _interferenceEndsAt = -1f;
     private float _interferenceIntensity;
@@ -112,8 +84,6 @@ internal sealed class BodycamOverlay
     private float _interferenceBandPosition;
     private float _interferenceBandHeight;
     private float _interferenceColorOffset;
-    private float _nextGrenadeCountUpdate;
-    private int _readyGrenadeCount;
 
     internal BodycamOverlay(ModConfig settings, BodyCameraController bodyCamera)
     {
@@ -145,7 +115,6 @@ internal sealed class BodycamOverlay
     internal void Draw()
     {
         RefreshRaidContext();
-        UpdateNativeRainLensEffect();
         if (!_settings.OverlayEnabled.Value
             || !_settings.ModEnabled.Value
             || !_settings.BodyCameraEnabled.Value
@@ -189,31 +158,14 @@ internal sealed class BodycamOverlay
 
     internal void Dispose()
     {
-        RestoreNativeRainLensEffect();
         RestoreNativeVisorLensEffect();
         RemoveFaceMosaicCapture();
         DestroyFaceMosaicRenderer();
         DestroyTexture(_scanlineTexture);
-        DestroyTexture(_recordingDotTexture);
         DestroyTexture(_dimRecordingLabelTexture);
         DestroyTexture(_recordingLabelTexture);
         DestroyTexture(_senzeLogoTexture);
         DestroyTexture(_disconnectNoiseTexture);
-        if (_wifiTextures != null)
-        {
-            foreach (var texture in _wifiTextures)
-            {
-                DestroyTexture(texture);
-            }
-        }
-        if (_batteryTextures != null)
-        {
-            foreach (var texture in _batteryTextures)
-            {
-                DestroyTexture(texture);
-            }
-        }
-        DestroyTexture(_batteryWarningTexture);
         if (_bahnschriftFont != null)
         {
             UnityEngine.Object.Destroy(_bahnschriftFont);
@@ -223,34 +175,14 @@ internal sealed class BodycamOverlay
             UnityEngine.Object.Destroy(_nativeLensDamageTexture);
         }
         DestroyTexture(_nativeLensDamageDisplayTexture);
-        if (_statusFillTextures != null)
-        {
-            foreach (var texture in _statusFillTextures)
-            {
-                DestroyTexture(texture);
-            }
-        }
-        if (_statusOutlineTextures != null)
-        {
-            foreach (var texture in _statusOutlineTextures)
-            {
-                DestroyTexture(texture);
-            }
-        }
         _scanlineTexture = null;
-        _recordingDotTexture = null;
         _recordingLabelTexture = null;
         _dimRecordingLabelTexture = null;
         _senzeLogoTexture = null;
         _disconnectNoiseTexture = null;
-        _wifiTextures = null;
-        _batteryTextures = null;
-        _batteryWarningTexture = null;
         _bahnschriftFont = null;
         _nativeLensDamageTexture = null;
         _nativeLensDamageDisplayTexture = null;
-        _statusFillTextures = null;
-        _statusOutlineTextures = null;
         ClearFaceCensorTextures();
         _damageOwner = null;
         _raidOwner = null;
@@ -382,15 +314,6 @@ internal sealed class BodycamOverlay
     {
         var previousColor = GUI.color;
         var noiseStrength = Mathf.Clamp01(_settings.SensorNoiseStrength.Value);
-        var flickerStrength = Mathf.Clamp01(_settings.SignalFlickerStrength.Value);
-        if (flickerStrength > 0f)
-        {
-            var flicker = GetSignalFlicker();
-            DrawRect(
-                new Rect(0f, 0f, Screen.width, Screen.height),
-                new Color(0f, 0f, 0f, flickerStrength * Mathf.Lerp(0.012f, 0.042f, flicker)));
-        }
-
         GUI.color = new Color(1f, 1f, 1f, noiseStrength * 0.02f);
         var scanlineOffset = Mathf.Repeat(Time.unscaledTime * 7f, 1f);
         GUI.DrawTextureWithTexCoords(
@@ -1047,6 +970,8 @@ internal sealed class BodycamOverlay
             _nativeVisorScratchIntensity = _nativeVisorEffect.ScratcesIntensity;
             _nativeVisorDistortIntensity = _nativeVisorEffect.DistortIntensity;
             _nativeVisorBlurSize = _nativeVisorEffect.blurSize;
+            _nativeVisorDownsample = _nativeVisorEffect.downsample;
+            _nativeVisorBlurIterations = _nativeVisorEffect.blurIterations;
             _nativeVisorMinLightValue = _nativeVisorEffect.MinLightValue;
             _nativeVisorAffectedByLight = _nativeVisorEffect.IsAffectedByLight;
             _nativeVisorForced = true;
@@ -1070,6 +995,8 @@ internal sealed class BodycamOverlay
         _nativeVisorEffect.ScratcesIntensity = visibility;
         _nativeVisorEffect.DistortIntensity = 0f;
         _nativeVisorEffect.blurSize = 0f;
+        _nativeVisorEffect.downsample = 0;
+        _nativeVisorEffect.blurIterations = 0;
         _nativeVisorEffect.MinLightValue = 0f;
         _nativeVisorEffect.IsAffectedByLight = false;
         _nativeVisorEffect.SetIntensity(1f);
@@ -1085,6 +1012,8 @@ internal sealed class BodycamOverlay
         _nativeVisorEffect.ScratcesIntensity = _nativeVisorScratchIntensity;
         _nativeVisorEffect.DistortIntensity = _nativeVisorDistortIntensity;
         _nativeVisorEffect.blurSize = _nativeVisorBlurSize;
+        _nativeVisorEffect.downsample = _nativeVisorDownsample;
+        _nativeVisorEffect.blurIterations = _nativeVisorBlurIterations;
         _nativeVisorEffect.MinLightValue = _nativeVisorMinLightValue;
         _nativeVisorEffect.IsAffectedByLight = _nativeVisorAffectedByLight;
         _nativeVisorEffect.Visible = _nativeVisorVisible;
@@ -1175,59 +1104,6 @@ internal sealed class BodycamOverlay
         _nativeLensDamageDirty = false;
     }
 
-    private void UpdateNativeRainLensEffect()
-    {
-        var camera = _bodyCamera.OverlayCamera;
-        if (!ReferenceEquals(_nativeRainCamera, camera))
-        {
-            RestoreNativeRainLensEffect();
-            _nativeRainCamera = camera;
-            _nativeRainScreenDrops = camera != null
-                ? camera.GetComponent<RainScreenDrops>()
-                    ?? camera.GetComponent<EffectsController>()?.RainScreenDrops
-                : null;
-        }
-
-        var shouldUseBodycamLens = _nativeRainScreenDrops != null
-            && _settings.ModEnabled.Value
-            && _settings.BodyCameraEnabled.Value
-            && _settings.RainLensEffectsEnabled.Value
-            && _bodyCamera.ShouldDrawOverlay;
-        if (!shouldUseBodycamLens)
-        {
-            RestoreNativeRainLensEffect();
-            return;
-        }
-
-        if (!_nativeRainGlassForced)
-        {
-            _nativeRainScreenDrops.ChangeGlassesState(true);
-            _nativeRainGlassForced = true;
-        }
-    }
-
-    private void RestoreNativeRainLensEffect()
-    {
-        if (_nativeRainScreenDrops == null || !_nativeRainGlassForced)
-        {
-            return;
-        }
-
-        _nativeRainScreenDrops.ChangeGlassesState(HasActivePlayerVisor());
-        _nativeRainGlassForced = false;
-    }
-
-    private bool HasActivePlayerVisor()
-    {
-        var player = _bodyCamera.OverlayPlayer;
-        if (player == null || !player.TryFindGlasses(out var visor) || visor == null)
-        {
-            return false;
-        }
-
-        return visor.Togglable == null || visor.Togglable.On;
-    }
-
     private void DrawNativeLensDamage()
     {
         var visibility = Mathf.Clamp01(_settings.LensDamageStrength.Value);
@@ -1247,60 +1123,6 @@ internal sealed class BodycamOverlay
             ScaleMode.StretchToFill,
             true);
         GUI.color = previousColor;
-    }
-
-    private void DrawCornerMarkers(float scale)
-    {
-        var margin = 42f * scale;
-        var length = 112f * scale;
-        var thickness = Mathf.Max(1f, 2f * scale);
-
-        DrawCorner(margin, margin, length, thickness, horizontalRight: true, verticalDown: true);
-        DrawCorner(Screen.width - margin, margin, length, thickness, horizontalRight: false, verticalDown: true);
-        DrawCorner(margin, Screen.height - margin, length, thickness, horizontalRight: true, verticalDown: false);
-        DrawCorner(Screen.width - margin, Screen.height - margin, length, thickness, horizontalRight: false, verticalDown: false);
-    }
-
-    private void DrawPresetCornerMarkers(float scale)
-    {
-        var margin = 12f * scale;
-        var length = 150f * scale;
-        var thickness = Mathf.Max(2f, 4f * scale);
-        var color = new Color(0.96f, 0.96f, 0.96f, 0.96f);
-
-        DrawPresetCorner(margin, margin, length, thickness, true, true, color);
-        DrawPresetCorner(Screen.width - margin, margin, length, thickness, false, true, color);
-        DrawPresetCorner(margin, Screen.height - margin, length, thickness, true, false, color);
-        DrawPresetCorner(Screen.width - margin, Screen.height - margin, length, thickness, false, false, color);
-    }
-
-    private static void DrawPresetCorner(
-        float x,
-        float y,
-        float length,
-        float thickness,
-        bool horizontalRight,
-        bool verticalDown,
-        Color color)
-    {
-        var horizontalX = horizontalRight ? x : x - length;
-        var verticalY = verticalDown ? y : y - length;
-        DrawRect(new Rect(horizontalX, y, length, thickness), color);
-        DrawRect(new Rect(x, verticalY, thickness, length), color);
-    }
-
-    private void DrawMinimalisticHeader(float scale)
-    {
-        var centreX = Screen.width * 0.5f;
-        var top = 34f * scale;
-        var textRect = new Rect(centreX - 82f * scale, top, 130f * scale, 30f * scale);
-        DrawShadowedLabel(textRect, "REC", _presetHeaderStyle);
-
-        var dotSize = 18f * scale;
-        GUI.color = RecordingColor;
-        GUI.DrawTexture(
-            new Rect(centreX + 20f * scale, top + 6f * scale, dotSize, dotSize),
-            _recordingDotTexture);
     }
 
     private void DrawRealBodycamStamp(float scale)
@@ -1397,265 +1219,6 @@ internal sealed class BodycamOverlay
             new Rect(textLeft, textTop + lineHeight, textWidth, lineHeight),
             lineTwo,
             _realBodycamSecondaryStyle);
-    }
-
-    private void DrawSideMarkers(float scale)
-    {
-        var margin = 42f * scale;
-        var length = 112f * scale;
-        var thickness = Mathf.Max(1f, 2f * scale);
-        var top = (Screen.height - length) * 0.5f;
-
-        DrawRect(new Rect(margin + 2f, top + 2f, thickness, length), ShadowColor);
-        DrawRect(new Rect(Screen.width - margin + 2f, top + 2f, thickness, length), ShadowColor);
-        DrawRect(new Rect(margin, top, thickness, length), HudColor);
-        DrawRect(new Rect(Screen.width - margin, top, thickness, length), HudColor);
-    }
-
-    private void DrawCorner(
-        float x,
-        float y,
-        float length,
-        float thickness,
-        bool horizontalRight,
-        bool verticalDown)
-    {
-        var horizontalX = horizontalRight ? x : x - length;
-        var verticalY = verticalDown ? y : y - length;
-
-        DrawRect(new Rect(horizontalX + 2f, y + 2f, length, thickness), ShadowColor);
-        DrawRect(new Rect(x + 2f, verticalY + 2f, thickness, length), ShadowColor);
-        DrawRect(new Rect(horizontalX, y, length, thickness), HudColor);
-        DrawRect(new Rect(x, verticalY, thickness, length), HudColor);
-    }
-
-    private void DrawRecordingHeader(float scale)
-    {
-        var centreX = Screen.width * 0.5f + _settings.RecordingOffsetX.Value * scale;
-        var top = (42f + _settings.RecordingOffsetY.Value) * scale;
-        var lineWidth = 130f * scale;
-        var lineHeight = 28f * scale;
-        var lineRect = new Rect(centreX - lineWidth * 0.5f, top, lineWidth, lineHeight);
-        DrawShadowedLabel(lineRect, "REC", _operatorStyle);
-
-        if (Mathf.FloorToInt(Time.unscaledTime * 1.6f) % 2 == 0)
-        {
-            var dotSize = 15f * scale;
-            var dotRect = new Rect(lineRect.x + 17f * scale, top + (lineHeight - dotSize) * 0.5f, dotSize, dotSize);
-            GUI.color = RecordingColor;
-            GUI.DrawTexture(dotRect, _recordingDotTexture);
-        }
-
-        var operatorName = _raidOwner?.Profile?.Info?.Nickname;
-        if (string.IsNullOrWhiteSpace(operatorName))
-        {
-            operatorName = "OPERATOR";
-        }
-
-        var operatorRect = new Rect(centreX - 210f * scale, top + 25f * scale, 420f * scale, 26f * scale);
-        DrawShadowedLabel(operatorRect, $"Operator: {operatorName}", _smallStyle);
-    }
-
-    private void DrawWirelessStatus(float scale)
-    {
-        if (_wifiTextures == null || _wifiTextures.Length < 3)
-        {
-            return;
-        }
-
-        if (Time.unscaledTime >= _nextWifiChange)
-        {
-            _wifiBars = _hudRandom.Next(1, 4);
-            _nextWifiChange = Time.unscaledTime + 0.65f + (float)_hudRandom.NextDouble() * 1.35f;
-        }
-
-        var rect = new Rect(
-            Screen.width - 224f * scale + _settings.WirelessOffsetX.Value * scale,
-            (66f + _settings.WirelessOffsetY.Value) * scale,
-            64f * scale,
-            40f * scale);
-        GUI.color = Color.white;
-        GUI.DrawTexture(rect, _wifiTextures[_wifiBars - 1], ScaleMode.ScaleToFit, true);
-    }
-
-    private void DrawBattery(float scale)
-    {
-        if (_batteryTextures == null || _batteryTextures.Length < 3)
-        {
-            return;
-        }
-
-        var hasRaidTime = TryGetRaidTimes(out var remainingTime, out var sessionTime);
-        var remainingRatio = hasRaidTime
-            ? Mathf.Clamp01((float)(remainingTime.TotalSeconds / sessionTime.TotalSeconds))
-            : 1f;
-        var criticalBattery = hasRaidTime
-            && remainingTime.TotalSeconds > 0d
-            && remainingTime.TotalMinutes <= 10d;
-        var textureIndex = criticalBattery ? 0 : remainingRatio > 0.66f ? 2 : remainingRatio > 0.33f ? 1 : 0;
-        var rect = new Rect(
-            Screen.width - 132f * scale + _settings.BatteryOffsetX.Value * scale,
-            (66f + _settings.BatteryOffsetY.Value) * scale,
-            78f * scale,
-            40f * scale);
-        GUI.color = Color.white;
-        GUI.DrawTexture(rect, _batteryTextures[textureIndex], ScaleMode.ScaleToFit, true);
-
-        if (criticalBattery && _batteryWarningTexture != null)
-        {
-            var blink = 0.18f + (Mathf.Sin(Time.unscaledTime * Mathf.PI * 3.2f) + 1f) * 0.41f;
-            GUI.color = new Color(0.95f, 0.035f, 0.02f, blink);
-            GUI.DrawTexture(rect, _batteryWarningTexture, ScaleMode.ScaleToFit, true);
-        }
-    }
-
-    private void DrawRaidInformation(float scale)
-    {
-        var raidTime = GetCurrentRaidWorldTime();
-        var displayedTime = raidTime.HasValue
-            ? raidTime.Value.ToString("HH:mm:ss", CultureInfo.InvariantCulture)
-            : "--:--:--";
-        var date = raidTime.HasValue
-            ? raidTime.Value.ToString("MMMM dd, yyyy", CultureInfo.InvariantCulture)
-            : "UNKNOWN DATE";
-        var rect = new Rect(
-            (52f + _settings.RaidInfoOffsetX.Value) * scale,
-            Screen.height - 132f * scale + _settings.RaidInfoOffsetY.Value * scale,
-            420f * scale,
-            82f * scale);
-        DrawShadowedLabel(rect, $"{date}\nRAID TIME: {displayedTime}\nLOCATION: {_raidLocationName}", _leftStyle);
-    }
-
-    private void DrawStatusHud(float scale)
-    {
-        if (_raidOwner?.HealthController == null
-            || _statusFillTextures == null
-            || _statusOutlineTextures == null)
-        {
-            return;
-        }
-
-        var healthController = _raidOwner.HealthController;
-        var health = Mathf.Clamp01(healthController.GetBodyPartHealth(EBodyPart.Common).Normalized);
-        var hydration = Mathf.Clamp01(healthController.Hydration.Normalized);
-        var energy = Mathf.Clamp01(healthController.Energy.Normalized);
-        var grenadeCount = GetReadyGrenadeCount();
-
-        var width = 244f * scale;
-        var left = Screen.width - 52f * scale - width + _settings.StatusHudOffsetX.Value * scale;
-        var top = Screen.height - 124f * scale + _settings.StatusHudOffsetY.Value * scale;
-
-        var iconSize = 40f * scale;
-        var iconTop = top + 11f * scale;
-        var healthRect = new Rect(left + 12f * scale, iconTop, iconSize, iconSize);
-        if (HasHeavyBleeding())
-        {
-            DrawHeavyBleedingHalo(healthRect, scale);
-        }
-
-        DrawStatusIcon(healthRect, StatusIconKind.Health, health);
-        DrawStatusIcon(new Rect(left + 62f * scale, iconTop, iconSize, iconSize), StatusIconKind.Hydration, hydration);
-        DrawStatusIcon(new Rect(left + 112f * scale, iconTop, iconSize, iconSize), StatusIconKind.Energy, energy);
-
-        var grenadeRect = new Rect(left + 168f * scale, iconTop, iconSize, iconSize);
-        DrawStatusIcon(grenadeRect, StatusIconKind.Grenade, grenadeCount > 0 ? 1f : 0f);
-        DrawShadowedLabel(
-            new Rect(left + 207f * scale, top + 10f * scale, 31f * scale, 42f * scale),
-            grenadeCount.ToString(CultureInfo.InvariantCulture),
-            _statusCountStyle);
-    }
-
-    private void DrawStatusIcon(Rect rect, StatusIconKind kind, float fillRatio)
-    {
-        var textureIndex = (int)kind;
-        fillRatio = Mathf.Clamp01(fillRatio);
-        if (fillRatio > 0.001f)
-        {
-            var fillHeight = rect.height * fillRatio;
-            var fillRect = new Rect(rect.x, rect.yMax - fillHeight, rect.width, fillHeight);
-            var fillColor = GetStatusFillColor(fillRatio);
-            GUI.color = fillColor;
-            GUI.DrawTextureWithTexCoords(
-                fillRect,
-                _statusFillTextures[textureIndex],
-                new Rect(0f, 0f, 1f, fillRatio),
-                true);
-        }
-
-        GUI.color = new Color(HudColor.r, HudColor.g, HudColor.b, 0.92f);
-        GUI.DrawTexture(rect, _statusOutlineTextures[textureIndex], ScaleMode.ScaleToFit, true);
-    }
-
-    private static Color GetStatusFillColor(float fillRatio)
-    {
-        if (fillRatio <= 0.15f)
-        {
-            return new Color(0.68f, 0.10f, 0.07f, 0.92f);
-        }
-        if (fillRatio <= 0.35f)
-        {
-            return new Color(0.65f, 0.44f, 0.16f, 0.90f);
-        }
-        return new Color(HudColor.r, HudColor.g, HudColor.b, 0.84f);
-    }
-
-    private bool HasHeavyBleeding()
-    {
-        if (_raidOwner?.HealthController == null)
-        {
-            return false;
-        }
-
-        foreach (var effect in _raidOwner.HealthController.FindActiveEffects<IHeavyBleeding>(EBodyPart.Common))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    private void DrawHeavyBleedingHalo(Rect heartRect, float scale)
-    {
-        var strength = _settings.HeavyBleedingHaloStrength.Value;
-        if (strength <= 0.001f)
-        {
-            return;
-        }
-
-        var pulse = 0.78f + (Mathf.Sin(Time.unscaledTime * 5.5f) + 1f) * 0.11f;
-        var alpha = Mathf.Clamp01(strength * pulse);
-        var heartTexture = _statusFillTextures[(int)StatusIconKind.Health];
-        DrawHeavyBleedingHaloLayer(heartRect, heartTexture, 11f * scale, alpha * 0.10f);
-        DrawHeavyBleedingHaloLayer(heartRect, heartTexture, 7f * scale, alpha * 0.16f);
-        DrawHeavyBleedingHaloLayer(heartRect, heartTexture, 4f * scale, alpha * 0.24f);
-    }
-
-    private static void DrawHeavyBleedingHaloLayer(Rect heartRect, Texture2D heartTexture, float expansion, float alpha)
-    {
-        var haloRect = new Rect(
-            heartRect.x - expansion,
-            heartRect.y - expansion,
-            heartRect.width + expansion * 2f,
-            heartRect.height + expansion * 2f);
-        GUI.color = new Color(0.92f, 0.035f, 0.018f, alpha);
-        GUI.DrawTexture(haloRect, heartTexture, ScaleMode.ScaleToFit, true);
-    }
-
-    private int GetReadyGrenadeCount()
-    {
-        if (_raidOwner?.InventoryController == null)
-        {
-            return 0;
-        }
-
-        if (Time.unscaledTime >= _nextGrenadeCountUpdate)
-        {
-            var grenades = InventoryExtension.GetThrowablePriorityGrenadesList(_raidOwner.InventoryController);
-            _readyGrenadeCount = grenades?.Count ?? 0;
-            _nextGrenadeCountUpdate = Time.unscaledTime + 0.25f;
-        }
-
-        return _readyGrenadeCount;
     }
 
     private void DrawMagazineCheckLabel(float scale)
@@ -1786,26 +1349,6 @@ internal sealed class BodycamOverlay
         DrawShadowedLabel(textRect, "Cam Disconnected", _disconnectStyle);
     }
 
-    private static bool TryGetRaidTimes(out TimeSpan remaining, out TimeSpan sessionTime)
-    {
-        remaining = TimeSpan.Zero;
-        sessionTime = TimeSpan.Zero;
-        if (!Singleton<AbstractGame>.Instantiated)
-        {
-            return false;
-        }
-
-        var timer = Singleton<AbstractGame>.Instance?.GameTimer;
-        if (timer?.SessionTime == null || timer.SessionTime.Value.TotalSeconds <= 0d)
-        {
-            return false;
-        }
-
-        sessionTime = timer.SessionTime.Value;
-        remaining = sessionTime - timer.PastTime;
-        return true;
-    }
-
     private static DateTime? GetCurrentRaidWorldTime()
     {
         if (!Singleton<GameWorld>.Instantiated)
@@ -1823,10 +1366,6 @@ internal sealed class BodycamOverlay
         {
             _scanlineTexture = CreateScanlineTexture();
         }
-        if (_recordingDotTexture == null)
-        {
-            _recordingDotTexture = CreateDotTexture();
-        }
         if (_recordingLabelTexture == null)
         {
             _recordingLabelTexture = LoadEmbeddedTexture("SenzeBodycam.Assets.recording-label.png");
@@ -1839,39 +1378,9 @@ internal sealed class BodycamOverlay
         {
             _senzeLogoTexture = LoadEmbeddedTexture("SenzeBodycam.Assets.SenzeBodycamLogo.png");
         }
-        if (_statusFillTextures == null || _statusOutlineTextures == null)
-        {
-            var iconCount = Enum.GetValues(typeof(StatusIconKind)).Length;
-            _statusFillTextures = new Texture2D[iconCount];
-            _statusOutlineTextures = new Texture2D[iconCount];
-            for (var index = 0; index < iconCount; index++)
-            {
-                var kind = (StatusIconKind)index;
-                _statusFillTextures[index] = CreateStatusIconTexture(kind, false);
-                _statusOutlineTextures[index] = CreateStatusIconTexture(kind, true);
-            }
-        }
         if (_disconnectNoiseTexture == null)
         {
             _disconnectNoiseTexture = CreateDisconnectNoiseTexture();
-        }
-        if (_wifiTextures == null)
-        {
-            _wifiTextures = LoadHudTextures(
-                "SenzeBodycam.Assets.wifi-low.png",
-                "SenzeBodycam.Assets.wifi-medium.png",
-                "SenzeBodycam.Assets.wifi-high.png");
-        }
-        if (_batteryTextures == null)
-        {
-            _batteryTextures = LoadHudTextures(
-                "SenzeBodycam.Assets.battery-low.png",
-                "SenzeBodycam.Assets.battery-medium.png",
-                "SenzeBodycam.Assets.battery-high.png");
-        }
-        if (_batteryWarningTexture == null && _batteryTextures != null && _batteryTextures.Length > 0)
-        {
-            _batteryWarningTexture = CreateBatteryWarningTexture(_batteryTextures[0]);
         }
     }
 
@@ -1882,7 +1391,7 @@ internal sealed class BodycamOverlay
         var magazineScale = scale * Mathf.Clamp(_settings.MagazineCheckLabelScale.Value, 0.6f, 1.8f);
         var magazineFontSize = Mathf.Max(11, Mathf.RoundToInt(15f * magazineScale));
         var recordingTextFontSize = Mathf.Max(8, Mathf.RoundToInt(22f * scale * _settings.RecordingTextScale.Value));
-        if (_operatorStyle != null
+        if (_realBodycamPrimaryStyle != null
             && _cachedFontSize == fontSize
             && _cachedMagazineFontSize == magazineFontSize
             && _cachedRecordingTextFontSize == recordingTextFontSize)
@@ -1893,20 +1402,12 @@ internal sealed class BodycamOverlay
         _cachedFontSize = fontSize;
         _cachedMagazineFontSize = magazineFontSize;
         _cachedRecordingTextFontSize = recordingTextFontSize;
-        _operatorStyle = CreateStyle(fontSize, TextAnchor.MiddleCenter, FontStyle.Bold);
-        _smallStyle = CreateStyle(Mathf.Max(10, Mathf.RoundToInt(13f * scale)), TextAnchor.MiddleCenter, FontStyle.Bold);
-        _presetHeaderStyle = CreateStyle(Mathf.Max(18, Mathf.RoundToInt(36f * scale)), TextAnchor.UpperLeft, FontStyle.Normal);
-        _presetHeaderStyle.font = _bahnschriftFont;
-        _presetHeaderStyle.normal.textColor = new Color(0.95f, 0.025f, 0.02f, 1f);
         _realBodycamPrimaryStyle = CreateStyle(recordingTextFontSize, TextAnchor.MiddleRight, FontStyle.Normal);
         _realBodycamPrimaryStyle.font = _bahnschriftFont;
         _realBodycamPrimaryStyle.normal.textColor = new Color(0.96f, 0.96f, 0.96f, 0.96f);
         _realBodycamSecondaryStyle = CreateStyle(recordingTextFontSize, TextAnchor.MiddleRight, FontStyle.Normal);
         _realBodycamSecondaryStyle.font = _bahnschriftFont;
         _realBodycamSecondaryStyle.normal.textColor = new Color(0.96f, 0.96f, 0.96f, 0.96f);
-        _statusCountStyle = CreateStyle(Mathf.Max(12, Mathf.RoundToInt(18f * scale)), TextAnchor.MiddleLeft, FontStyle.Bold);
-        _leftStyle = CreateStyle(Mathf.Max(10, Mathf.RoundToInt(15f * scale)), TextAnchor.LowerLeft, FontStyle.Bold);
-        _leftStyle.wordWrap = false;
         _magazineCountStyle = CreateStyle(magazineFontSize, TextAnchor.MiddleLeft, FontStyle.Bold);
         _magazineAmmoStyle = CreateStyle(Mathf.Max(10, Mathf.RoundToInt(13f * magazineScale)), TextAnchor.MiddleLeft, FontStyle.Normal);
         _disconnectStyle = CreateStyle(Mathf.Max(26, Mathf.RoundToInt(46f * scale)), TextAnchor.MiddleCenter, FontStyle.Bold);
@@ -1976,177 +1477,6 @@ internal sealed class BodycamOverlay
         return texture;
     }
 
-    private static Texture2D CreateDotTexture()
-    {
-        const int size = 32;
-        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
-        {
-            name = "Senze Bodycam Recording Dot",
-            filterMode = FilterMode.Bilinear,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-
-        var pixels = new Color[size * size];
-        for (var y = 0; y < size; y++)
-        {
-            for (var x = 0; x < size; x++)
-            {
-                var dx = (x + 0.5f) / size * 2f - 1f;
-                var dy = (y + 0.5f) / size * 2f - 1f;
-                var alpha = Mathf.Clamp01((1f - Mathf.Sqrt(dx * dx + dy * dy)) * 8f);
-                pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
-            }
-        }
-
-        texture.SetPixels(pixels);
-        texture.Apply(false, true);
-        return texture;
-    }
-
-    private static Texture2D CreateBatteryWarningTexture(Texture2D lowBatteryTexture)
-    {
-        var width = lowBatteryTexture.width;
-        var height = lowBatteryTexture.height;
-        var texture = new Texture2D(width, height, TextureFormat.RGBA32, false)
-        {
-            name = "Senze Bodycam Battery Warning",
-            filterMode = FilterMode.Bilinear,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-
-        var sourcePixels = lowBatteryTexture.GetPixels32();
-        var pixels = new Color32[sourcePixels.Length];
-        var minimumX = Mathf.RoundToInt(width * (30f / 256f));
-        var maximumX = Mathf.RoundToInt(width * (77f / 256f));
-        var minimumY = Mathf.RoundToInt(height * (49f / 144f));
-        var maximumY = Mathf.RoundToInt(height * (110f / 144f));
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                var index = y * width + x;
-                if (x >= minimumX && x <= maximumX
-                    && y >= minimumY && y <= maximumY
-                    && sourcePixels[index].a > 0)
-                {
-                    pixels[index] = new Color32(byte.MaxValue, byte.MaxValue, byte.MaxValue, sourcePixels[index].a);
-                }
-            }
-        }
-
-        texture.SetPixels32(pixels);
-        texture.Apply(false, true);
-        return texture;
-    }
-
-    private static Texture2D CreateStatusIconTexture(StatusIconKind kind, bool outline)
-    {
-        const int size = 64;
-        const int samplesPerAxis = 4;
-        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
-        {
-            name = $"Senze Bodycam {kind} {(outline ? "Outline" : "Fill")}",
-            filterMode = FilterMode.Bilinear,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-
-        var pixels = new Color[size * size];
-        for (var y = 0; y < size; y++)
-        {
-            for (var x = 0; x < size; x++)
-            {
-                var coveredSamples = 0;
-                for (var sampleY = 0; sampleY < samplesPerAxis; sampleY++)
-                {
-                    for (var sampleX = 0; sampleX < samplesPerAxis; sampleX++)
-                    {
-                        var normalizedX = (x + (sampleX + 0.5f) / samplesPerAxis) / size * 2f - 1f;
-                        var normalizedY = (y + (sampleY + 0.5f) / samplesPerAxis) / size * 2f - 1f;
-                        var inside = IsInsideStatusIcon(kind, normalizedX, normalizedY);
-                        if (inside && (!outline || IsStatusIconEdge(kind, normalizedX, normalizedY)))
-                        {
-                            coveredSamples++;
-                        }
-                    }
-                }
-
-                var alpha = coveredSamples / (float)(samplesPerAxis * samplesPerAxis);
-                pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
-            }
-        }
-
-        texture.SetPixels(pixels);
-        texture.Apply(false, true);
-        return texture;
-    }
-
-    private static bool IsStatusIconEdge(StatusIconKind kind, float x, float y)
-    {
-        const float edgeWidth = 0.075f;
-        return !IsInsideStatusIcon(kind, x - edgeWidth, y)
-            || !IsInsideStatusIcon(kind, x + edgeWidth, y)
-            || !IsInsideStatusIcon(kind, x, y - edgeWidth)
-            || !IsInsideStatusIcon(kind, x, y + edgeWidth);
-    }
-
-    private static bool IsInsideStatusIcon(StatusIconKind kind, float x, float y)
-    {
-        switch (kind)
-        {
-            case StatusIconKind.Health:
-                x *= 1.22f;
-                y *= 1.22f;
-                var heartShape = x * x + y * y - 1f;
-                return heartShape * heartShape * heartShape - x * x * y * y * y <= 0f;
-
-            case StatusIconKind.Hydration:
-                var dropX = x;
-                var dropY = y + 0.27f;
-                var roundDrop = dropX * dropX + dropY * dropY <= 0.58f * 0.58f;
-                var taperedDrop = y >= -0.10f
-                    && y <= 0.92f
-                    && Mathf.Abs(x) <= (0.92f - y) * 0.57f;
-                return roundDrop || taperedDrop;
-
-            case StatusIconKind.Energy:
-                return IsInsidePolygon(LightningPoints, x, y);
-
-            case StatusIconKind.Grenade:
-                var bodyX = x / 0.58f;
-                var bodyY = (y + 0.27f) / 0.60f;
-                var grenadeBody = bodyX * bodyX + bodyY * bodyY <= 1f;
-                var grenadeNeck = Mathf.Abs(x) <= 0.23f && y >= 0.22f && y <= 0.48f;
-                var grenadeCap = Mathf.Abs(x) <= 0.34f && y >= 0.43f && y <= 0.58f;
-                var grenadeLever = x >= 0.18f && x <= 0.68f && y >= 0.48f && y <= 0.62f;
-                return grenadeBody || grenadeNeck || grenadeCap || grenadeLever;
-
-            default:
-                return false;
-        }
-    }
-
-    private static bool IsInsidePolygon(Vector2[] points, float x, float y)
-    {
-        var inside = false;
-        var previous = points.Length - 1;
-        for (var current = 0; current < points.Length; current++)
-        {
-            var currentPoint = points[current];
-            var previousPoint = points[previous];
-            if ((currentPoint.y > y) != (previousPoint.y > y)
-                && x < (previousPoint.x - currentPoint.x) * (y - currentPoint.y)
-                    / (previousPoint.y - currentPoint.y) + currentPoint.x)
-            {
-                inside = !inside;
-            }
-            previous = current;
-        }
-        return inside;
-    }
-
     private static Texture2D CreateDisconnectNoiseTexture()
     {
         var texture = new Texture2D(160, 90, TextureFormat.RGBA32, false)
@@ -2157,54 +1487,6 @@ internal sealed class BodycamOverlay
             hideFlags = HideFlags.HideAndDontSave
         };
         return texture;
-    }
-
-    private static Texture2D[] LoadHudTextures(params string[] resourceNames)
-    {
-        var textures = new List<Texture2D>(resourceNames.Length);
-        var assembly = Assembly.GetExecutingAssembly();
-
-        foreach (var resourceName in resourceNames)
-        {
-            using (var stream = assembly.GetManifestResourceStream(resourceName))
-            {
-                if (stream == null)
-                {
-                    continue;
-                }
-
-                var data = new byte[checked((int)stream.Length)];
-                var offset = 0;
-                while (offset < data.Length)
-                {
-                    var read = stream.Read(data, offset, data.Length - offset);
-                    if (read <= 0)
-                    {
-                        break;
-                    }
-                    offset += read;
-                }
-
-                var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false)
-                {
-                    name = resourceName,
-                    filterMode = FilterMode.Bilinear,
-                    wrapMode = TextureWrapMode.Clamp,
-                    hideFlags = HideFlags.HideAndDontSave
-                };
-                if (offset == data.Length && ImageConversion.LoadImage(texture, data, false))
-                {
-                    RecolorHudTexture(texture, resourceName);
-                    textures.Add(texture);
-                }
-                else
-                {
-                    DestroyTexture(texture);
-                }
-            }
-        }
-
-        return textures.ToArray();
     }
 
     private static Texture2D LoadEmbeddedTexture(string resourceName)
@@ -2268,24 +1550,6 @@ internal sealed class BodycamOverlay
         return texture;
     }
 
-    private static void RecolorHudTexture(Texture2D texture, string resourceName)
-    {
-        var pixels = texture.GetPixels();
-        for (var index = 0; index < pixels.Length; index++)
-        {
-            var source = pixels[index];
-            if (source.a <= 0f)
-            {
-                continue;
-            }
-
-            pixels[index] = new Color(HudColor.r, HudColor.g, HudColor.b, source.a * 0.92f);
-        }
-
-        texture.SetPixels(pixels);
-        texture.Apply(false, false);
-    }
-
     private void RefreshRaidContext()
     {
         if (!Singleton<GameWorld>.Instantiated)
@@ -2293,9 +1557,7 @@ internal sealed class BodycamOverlay
             ClearFaceCensorTextures();
             _raidOwner = null;
             _damageOwner = null;
-            _raidLocationName = "UNKNOWN";
             _disconnected = false;
-            ResetStatusHud();
             _projectileHits.Clear();
             ResetNativeLensDamage();
             return;
@@ -2308,24 +1570,15 @@ internal sealed class BodycamOverlay
             _raidOwner = player;
             _damageOwner = player;
             _disconnected = false;
-            ResetStatusHud();
             _projectileHits.Clear();
             ResetNativeLensDamage();
 
-            var gameWorld = Singleton<GameWorld>.Instance;
-            _raidLocationName = GetLocationName(gameWorld?.LocationId);
         }
 
         if (_raidOwner?.HealthController != null && !_raidOwner.HealthController.IsAlive)
         {
             _disconnected = true;
         }
-    }
-
-    private void ResetStatusHud()
-    {
-        _readyGrenadeCount = 0;
-        _nextGrenadeCountUpdate = 0f;
     }
 
     private void ResetNativeLensDamage()
@@ -2371,39 +1624,6 @@ internal sealed class BodycamOverlay
         _disconnectNoiseTexture.Apply(false, false);
     }
 
-    private float GetSignalFlicker()
-    {
-        var now = Time.unscaledTime;
-        if (now >= _nextFlickerJitterUpdate)
-        {
-            _flickerJitter = (float)_hudRandom.NextDouble();
-            _nextFlickerJitterUpdate = now + 0.04f + (float)_hudRandom.NextDouble() * 0.08f;
-        }
-
-        var slowWave = Mathf.Sin(now * 13.7f) * 0.24f;
-        var fastWave = Mathf.Sin(now * 37.1f) * 0.11f;
-        return Mathf.Clamp01(0.48f + slowWave + fastWave + (_flickerJitter - 0.5f) * 0.24f);
-    }
-
-    private static string GetLocationName(string locationId)
-    {
-        if (string.IsNullOrWhiteSpace(locationId))
-        {
-            return "UNKNOWN";
-        }
-
-        var localizationKey = locationId + " Name";
-        var localized = localizationKey.Localized();
-        if (!string.IsNullOrWhiteSpace(localized)
-            && !string.Equals(localized, localizationKey, StringComparison.OrdinalIgnoreCase))
-        {
-            return localized.ToUpperInvariant();
-        }
-
-        var normalized = locationId.Replace('_', ' ').Trim();
-        return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(normalized.ToLowerInvariant()).ToUpperInvariant();
-    }
-
     private static void DestroyTexture(Texture2D texture)
     {
         if (texture != null)
@@ -2441,14 +1661,6 @@ internal sealed class BodycamOverlay
         internal Vector2 Position { get; }
         internal float Size { get; }
         internal float Rotation { get; }
-    }
-
-    private enum StatusIconKind
-    {
-        Health,
-        Hydration,
-        Energy,
-        Grenade
     }
 
     private struct ProjectileHitKey : IEquatable<ProjectileHitKey>

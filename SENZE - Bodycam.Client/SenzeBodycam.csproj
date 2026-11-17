@@ -3,9 +3,9 @@
     <TargetFramework>net471</TargetFramework>
     <RootNamespace>SenzeBodycam</RootNamespace>
     <AssemblyName>SenzeBodycam</AssemblyName>
-    <Version>1.2.0</Version>
-    <AssemblyVersion>1.2.0.0</AssemblyVersion>
-    <FileVersion>1.2.0.0</FileVersion>
+    <Version>1.2.5</Version>
+    <AssemblyVersion>1.2.5.0</AssemblyVersion>
+    <FileVersion>1.2.5.0</FileVersion>
     <Authors>Senze</Authors>
     <Company>Senze</Company>
     <Product>SenzeBodycam</Product>
@@ -78,8 +78,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="..\SenzeBodycamLogo.png" LogicalName="SenzeBodycam.Assets.SenzeBodycamLogo.png" />
     <EmbeddedResource Include="Assets\recording-label.png" />
+    <EmbeddedResource Include="Assets\SenzeBodycamLogo.png" LogicalName="SenzeBodycam.Assets.SenzeBodycamLogo.png" />
   </ItemGroup>
 
   <Target Name="ValidateSPTReferences" BeforeTargets="ResolveReferences">

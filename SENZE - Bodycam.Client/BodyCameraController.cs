@@ -11,9 +11,15 @@ namespace SenzeBodycam;
 
 internal sealed class BodyCameraController
 {
-    private const float FlashlightIntensity = 2f;
+    private const float LowLightGain = 2.49f;
+    private const float LowLightNoise = 0.7f;
+    private const float NightVisionGain = 2.6f;
+    private const float NightVisionNoise = 0.65f;
+    private const float NearWeaponBlurStrength = 0.01323948f;
+    private const float CenteredBodyMountOffsetX = 0.1291221f;
+    private const float FlashlightIntensity = 0.3f;
     private const float FlashlightRange = 25f;
-    private const float FlashlightBeamAngle = 55f;
+    private const float FlashlightBeamAngle = 75f;
 
     private static readonly AccessTools.FieldRef<ProceduralWeaponAnimation, float> AimingWeightRef =
         AccessTools.FieldRefAccess<ProceduralWeaponAnimation, float>("_aimingWeight");
@@ -22,10 +28,11 @@ internal sealed class BodyCameraController
     private readonly ManualLogSource _logger;
     private Player _player;
     private Camera _camera;
-    private Light _flashlight;
-    private bool _flashlightEnabled;
+    private CameraLodBiasController _cameraLodBias;
     private float _nativeFieldOfView;
     private bool _fieldOfViewOverridden;
+    private Light _flashlight;
+    private bool _flashlightEnabled;
     private Quaternion _followRotation;
     private Vector3 _followAngularVelocity;
     private bool _hasFollowRotation;
@@ -47,19 +54,6 @@ internal sealed class BodyCameraController
     private bool _hasInertiaSample;
     private Vector3 _shotRotation;
     private Vector3 _shotRotationVelocity;
-    private Vector3 _shotPosition;
-    private Vector3 _shotPositionVelocity;
-    private Vector3 _weaponShotRotation;
-    private Vector3 _weaponShotRotationVelocity;
-    private ProceduralWeaponAnimation _weaponKickAnimation;
-    private Transform _weaponKickRoot;
-    private Vector3 _weaponKickBasePosition;
-    private Quaternion _weaponKickBaseRotation;
-    private Vector3 _weaponKickAppliedPosition;
-    private Quaternion _weaponKickAppliedRotation;
-    private float _coverResponse;
-    private float _coverResponseVelocity;
-    private int _lastCoverProbeFrame = -100;
     private int _lastCameraFrame = -100;
     private Vignette _vignette;
     private bool _vignetteWasActive;
@@ -87,14 +81,13 @@ internal sealed class BodyCameraController
     private bool _chromaticAberrationWasEnabled;
     private float _chromaticAberrationIntensity;
     private bool _chromaticAberrationFastMode;
-    private Bloom _bloom;
-    private bool _bloomWasActive;
-    private bool _bloomWasEnabled;
-    private float _bloomIntensity;
-    private float _bloomThreshold;
-    private float _bloomSoftKnee;
-    private float _bloomDiffusion;
-    private bool _bloomFastMode;
+    private DepthOfField _depthOfField;
+    private bool _depthOfFieldWasActive;
+    private bool _depthOfFieldWasEnabled;
+    private float _depthOfFieldFocusDistance;
+    private float _depthOfFieldAperture;
+    private float _depthOfFieldFocalLength;
+    private KernelSize _depthOfFieldKernelSize;
     private MotionBlur _motionBlur;
     private bool _motionBlurWasActive;
     private bool _motionBlurWasEnabled;
@@ -115,11 +108,6 @@ internal sealed class BodyCameraController
     private float _colorGradingContrast;
     private Vector4 _colorGradingGamma;
     private Color _colorGradingColorFilter;
-    private Quaternion _previousTargetRotation;
-    private bool _hasTargetRotationSample;
-    private Vector3 _turnRotation;
-    private Vector3 _turnRotationVelocity;
-    private Vector3 _smoothedTurnVelocity;
 
     internal Player OverlayPlayer => _player;
 
@@ -203,19 +191,24 @@ internal sealed class BodyCameraController
 
         if (!ReferenceEquals(_player, player) || !ReferenceEquals(_camera, camera))
         {
-            BeginTracking(player, camera);
+            BeginTracking(player, camera, cameraController.CameraManager);
         }
         _lastCameraFrame = Time.frameCount;
         var active = _settings.ModEnabled.Value && _settings.BodyCameraEnabled.Value;
-        UpdateNativeFieldOfView(cameraController);
-        if (!active)
+        var nativeFov = cameraController.CameraManager?.Fov ?? 0f;
+        if (nativeFov > 1f && nativeFov < 179f)
+        {
+            _nativeFieldOfView = nativeFov;
+        }
+        if (!active || !_settings.WideFieldOfViewEnabled.Value)
         {
             RestoreFieldOfView();
         }
-        if (!active || !_flashlightEnabled)
+        if (!active)
         {
             DisableFlashlight();
         }
+
         var deltaTime = Mathf.Clamp(Time.deltaTime, 0f, 0.05f);
         if (deltaTime <= 0f)
         {
@@ -235,6 +228,7 @@ internal sealed class BodyCameraController
         if (ribcage == null)
         {
             DisableFlashlight();
+            RestoreFieldOfView();
             return;
         }
 
@@ -265,7 +259,7 @@ internal sealed class BodyCameraController
 
         var bodyRight = Vector3.Cross(Vector3.up, bodyForward).normalized;
         var animatedBodyPosition = ribcage.position
-            + bodyRight * _settings.CameraSideways.Value
+            + bodyRight * (CenteredBodyMountOffsetX - _settings.CameraSideways.Value)
             + Vector3.up * _settings.CameraVertical.Value
             + bodyForward * _settings.CameraForward.Value;
         var bodyPosition = GetStabilizedMountPosition(
@@ -279,26 +273,18 @@ internal sealed class BodyCameraController
             _settings.AdsOffsetX.Value,
             _settings.AdsOffsetY.Value,
             _settings.AdsOffsetZ.Value) * nativeAdsBlend;
-        positionBeforeActivation += baseRotation * (_movementPosition + _inertiaPosition + _shotPosition + adsOffset);
+        positionBeforeActivation += baseRotation * (_movementPosition + _inertiaPosition + adsOffset);
         cameraTransform.position = Vector3.Lerp(basePosition, positionBeforeActivation, _activationBlend);
 
         var bodyRotation = _followRotation;
-        var cornerRoll = Mathf.Clamp(
-            _coverResponse * _settings.CornerPeekStrength.Value * 16f,
-            -12f,
-            12f) * (1f - nativeAdsBlend);
-        var localRotation = _movementRotation + _inertiaRotation + _turnRotation + _shotRotation;
-        if (_settings.CornerPeekEnabled.Value)
-        {
-            localRotation.z += cornerRoll;
-        }
+        var localRotation = _movementRotation + _inertiaRotation + _shotRotation;
         var bodyCameraRotation = bodyRotation * Quaternion.Euler(localRotation);
         var finalRotation = Quaternion.Slerp(baseRotation, bodyCameraRotation, _activationBlend);
         cameraTransform.rotation = finalRotation;
-        _viewRotationCorrection = finalRotation * Quaternion.Inverse(baseRotation);
-        _hasViewRotationCorrection = true;
         ApplyFieldOfView();
         UpdateFlashlight();
+        _viewRotationCorrection = finalRotation * Quaternion.Inverse(baseRotation);
+        _hasViewRotationCorrection = true;
     }
 
     internal void AddShotKick(Player player)
@@ -311,32 +297,11 @@ internal sealed class BodyCameraController
             return;
         }
 
-        var aimBlend = GetNativeAdsBlend(player.ProceduralWeaponAnimation);
-        var strength = _settings.ShotReaction.Value * Mathf.Lerp(1f, 0.75f, aimBlend);
-        if (strength <= 0.001f)
-        {
-            return;
-        }
-
-        _shotRotationVelocity += new Vector3(
-            -38f,
-            Random.Range(-6f, 6f),
-            Random.Range(-7f, 7f)) * strength;
-        _shotRotationVelocity = Vector3.ClampMagnitude(_shotRotationVelocity, 100f);
-        _shotPositionVelocity.z = Mathf.Max(-0.8f, _shotPositionVelocity.z - 0.2f * strength);
-        _weaponShotRotationVelocity += new Vector3(
-            -85f,
-            Random.Range(-5f, 5f),
-            Random.Range(-10f, 10f)) * strength;
-        _weaponShotRotationVelocity = Vector3.ClampMagnitude(_weaponShotRotationVelocity, 190f);
-    }
-
-    internal void PrepareForShot(Player player)
-    {
-        if (player != null && ReferenceEquals(player, _player))
-        {
-            RestoreWeaponVisualKick();
-        }
+        var strength = _settings.ShotReaction.Value;
+        var yaw = Random.Range(-0.1971831f, 0.1971831f) * strength;
+        _shotRotation += new Vector3(-0.308169f * strength, yaw, 0f);
+        _shotRotation.x = Mathf.Clamp(_shotRotation.x, -4f, 0f);
+        _shotRotation.y = Mathf.Clamp(_shotRotation.y, -2f, 2f);
     }
 
     internal bool TryGetInteractionRay(Player player, out Ray interactionRay)
@@ -369,190 +334,21 @@ internal sealed class BodyCameraController
         return true;
     }
 
-    internal void ApplyWeaponMotion(
-        EFT.Animations.ProceduralWeaponAnimation weaponAnimation)
-    {
-        RestoreWeaponVisualKick();
-        if (weaponAnimation == null
-            || _player == null
-            || !ReferenceEquals(weaponAnimation, _player.ProceduralWeaponAnimation)
-            || !IsActiveFor(_player))
-        {
-            ResetCoverResponse();
-            return;
-        }
-
-        var weaponRoot = weaponAnimation.HandsContainer?.WeaponRootAnim;
-        if (weaponRoot == null)
-        {
-            return;
-        }
-
-        if (_settings.CornerPeekEnabled.Value
-            && _settings.CornerPeekStrength.Value > 0.001f
-            && !weaponAnimation.IsAiming
-            && !weaponAnimation.IsMountedState)
-        {
-            UpdateCoverResponse();
-            var response = _coverResponse * Mathf.Clamp(_settings.CornerPeekStrength.Value, 0f, 2f);
-            if (Mathf.Abs(response) > 0.001f)
-            {
-                var cornerPivot = weaponRoot.TransformPoint(new Vector3(0f, -0.2f, 0f));
-                weaponAnimation.RotateAround(
-                    weaponRoot,
-                    cornerPivot,
-                    new Vector3(0f, response * 4.5f, -response * 13f));
-                weaponAnimation.Offset = weaponRoot.localPosition;
-            }
-        }
-        else
-        {
-            ResetCoverResponse();
-        }
-
-        if (_weaponShotRotation.sqrMagnitude < 0.0001f)
-        {
-            return;
-        }
-
-        _weaponKickAnimation = weaponAnimation;
-        _weaponKickRoot = weaponRoot;
-        _weaponKickBasePosition = weaponRoot.localPosition;
-        _weaponKickBaseRotation = weaponRoot.localRotation;
-        var pivot = weaponRoot.TransformPoint(new Vector3(0f, -0.2f, 0f));
-        weaponAnimation.RotateAround(weaponRoot, pivot, _weaponShotRotation);
-        weaponAnimation.Offset = weaponRoot.localPosition;
-        _weaponKickAppliedPosition = weaponRoot.localPosition;
-        _weaponKickAppliedRotation = weaponRoot.localRotation;
-    }
-
-    private void RestoreWeaponVisualKick()
-    {
-        if (_weaponKickRoot != null
-            && _weaponKickAnimation != null
-            && Vector3.Distance(_weaponKickRoot.localPosition, _weaponKickAppliedPosition) < 0.001f
-            && Quaternion.Angle(_weaponKickRoot.localRotation, _weaponKickAppliedRotation) < 0.05f)
-        {
-            _weaponKickRoot.localPosition = _weaponKickBasePosition;
-            _weaponKickRoot.localRotation = _weaponKickBaseRotation;
-            _weaponKickAnimation.Offset = _weaponKickBasePosition;
-        }
-
-        _weaponKickRoot = null;
-        _weaponKickAnimation = null;
-    }
-
-    private static float GetCoverProximity(Vector3 origin, Vector3 forward, Vector3 side)
-    {
-        const float probeRadius = 0.09f;
-        var innerProximity = GetObstacleProximity(
-            origin + side * 0.16f,
-            forward,
-            probeRadius,
-            1.4f);
-        var outerProximity = GetObstacleProximity(
-            origin + side * 0.38f,
-            forward,
-            probeRadius,
-            1.15f);
-        var diagonalProximity = GetObstacleProximity(
-            origin + side * 0.22f,
-            (forward + side * 0.4f).normalized,
-            probeRadius,
-            1.2f);
-
-        return Mathf.Max(innerProximity * 0.8f, Mathf.Max(outerProximity, diagonalProximity * 0.85f));
-    }
-
-    private static float GetObstacleProximity(
-        Vector3 origin,
-        Vector3 direction,
-        float radius,
-        float distance)
-    {
-        if (!Physics.SphereCast(
-                origin,
-                radius,
-                direction,
-                out var hit,
-                distance,
-                LayersMaskController.HighPolyWithTerrainMask,
-                QueryTriggerInteraction.Ignore))
-        {
-            return 0f;
-        }
-
-        return 1f - Mathf.Clamp01(hit.distance / distance);
-    }
-
-    private void UpdateCoverResponse()
-    {
-        if (_lastCoverProbeFrame == Time.frameCount)
-        {
-            return;
-        }
-
-        _lastCoverProbeFrame = Time.frameCount;
-        var cameraTransform = _camera.transform;
-        var forward = cameraTransform.forward;
-        var right = cameraTransform.right;
-        var origin = cameraTransform.position + forward * 0.04f;
-
-        var leftProximity = GetCoverProximity(origin, forward, -right);
-        var rightProximity = GetCoverProximity(origin, forward, right);
-        var proximityDifference = leftProximity - rightProximity;
-        var targetResponse = Mathf.Abs(proximityDifference) <= 0.025f
-            ? 0f
-            : Mathf.Sign(proximityDifference)
-                * Mathf.InverseLerp(0.025f, 0.45f, Mathf.Abs(proximityDifference));
-
-        if (Mathf.Abs(targetResponse) > 0.001f)
-        {
-            var openSide = right * Mathf.Sign(targetResponse);
-            var clearance = GetObstacleProximity(
-                origin + forward * 0.2f,
-                openSide,
-                0.14f,
-                0.4f);
-            if (clearance > 0.25f)
-            {
-                targetResponse = 0f;
-            }
-        }
-
-        var deltaTime = Mathf.Clamp(Time.deltaTime, 0f, 0.05f);
-        var smoothTime = Mathf.Abs(targetResponse) > Mathf.Abs(_coverResponse) ? 0.13f : 0.28f;
-        _coverResponse = Mathf.SmoothDamp(
-            _coverResponse,
-            targetResponse,
-            ref _coverResponseVelocity,
-            smoothTime,
-            12f,
-            deltaTime);
-    }
-
-    private void ResetCoverResponse()
-    {
-        _coverResponse = 0f;
-        _coverResponseVelocity = 0f;
-        _lastCoverProbeFrame = -100;
-    }
-
     internal void Reset()
     {
-        RestoreWeaponVisualKick();
+        RestoreFieldOfView();
         DestroyFlashlight();
         _flashlightEnabled = false;
-        RestoreFieldOfView();
         RestoreLensDistortion(true);
         RestoreVignette(true);
         RestoreChromaticAberration(true);
-        RestoreBloom(true);
+        RestoreDepthOfField(true);
         RestoreMotionBlur(true);
         RestoreGrain(true);
         RestoreColorGrading(true);
         _player = null;
         _camera = null;
+        _cameraLodBias = null;
         _nativeFieldOfView = 0f;
         _followRotation = Quaternion.identity;
         _followAngularVelocity = Vector3.zero;
@@ -575,19 +371,7 @@ internal sealed class BodyCameraController
         _hasInertiaSample = false;
         _shotRotation = Vector3.zero;
         _shotRotationVelocity = Vector3.zero;
-        _shotPosition = Vector3.zero;
-        _shotPositionVelocity = Vector3.zero;
-        _weaponShotRotation = Vector3.zero;
-        _weaponShotRotationVelocity = Vector3.zero;
-        _coverResponse = 0f;
-        _coverResponseVelocity = 0f;
-        _lastCoverProbeFrame = -100;
         _lastCameraFrame = -100;
-        _previousTargetRotation = Quaternion.identity;
-        _hasTargetRotationSample = false;
-        _turnRotation = Vector3.zero;
-        _turnRotationVelocity = Vector3.zero;
-        _smoothedTurnVelocity = Vector3.zero;
     }
 
     internal void ApplyLensDistortion(PostProcessLayer postProcessLayer, Camera camera)
@@ -602,7 +386,7 @@ internal sealed class BodyCameraController
         ApplyLensDistortion(postProcessLayer);
         ApplyVignette(postProcessLayer);
         ApplyChromaticAberration(postProcessLayer);
-        ApplyBloom(postProcessLayer);
+        ApplyDepthOfField(postProcessLayer);
         ApplyMotionBlur(postProcessLayer);
         ApplyGrain(postProcessLayer);
         ApplyColorGrading(postProcessLayer);
@@ -632,9 +416,11 @@ internal sealed class BodyCameraController
         lensDistortion.centerY.value = 0f;
         lensDistortion.intensityX.value = 1f;
         lensDistortion.intensityY.value = 1f;
-        var strength = Mathf.Clamp(_settings.FisheyeStrength.Value, 0f, 30f);
-        lensDistortion.intensity.value = Mathf.Clamp(strength * 2f, 0f, 100f);
-        lensDistortion.scale.value = 1f + strength * 0.0025f;
+        lensDistortion.intensity.value = Mathf.Clamp(
+            _settings.FisheyeStrength.Value * 2f,
+            0f,
+            100f);
+        lensDistortion.scale.value = _settings.FisheyeEdgeCrop.Value;
     }
 
     private void ApplyVignette(PostProcessLayer postProcessLayer)
@@ -659,8 +445,8 @@ internal sealed class BodyCameraController
         vignette.mode.value = VignetteMode.Classic;
         vignette.color.value = Color.black;
         vignette.center.value = new Vector2(0.5f, 0.5f);
-        vignette.intensity.value = nightVision ? 0.82f : Mathf.Min(0.45f, strength);
-        vignette.smoothness.value = nightVision ? 0.55f : 0.16f;
+        vignette.intensity.value = nightVision ? 0.82f : Mathf.Min(0.6f, strength * 1.2f);
+        vignette.smoothness.value = nightVision ? 0.55f : 0.14f;
         vignette.roundness.value = 1f;
         vignette.rounded.value = true;
     }
@@ -687,37 +473,32 @@ internal sealed class BodyCameraController
         chromaticAberration.fastMode.value = false;
     }
 
-    private void ApplyBloom(PostProcessLayer postProcessLayer)
+    private void ApplyDepthOfField(PostProcessLayer postProcessLayer)
     {
-        var bloom = postProcessLayer.GetSettings<Bloom>();
-        if (bloom == null)
+        var depthOfField = postProcessLayer.GetSettings<DepthOfField>();
+        if (depthOfField == null)
         {
             return;
         }
 
-        TrackBloom(bloom);
-        var nightVision = _settings.NightVisionEnabled.Value;
-        var visionGain = nightVision
-            ? Mathf.Clamp(_settings.NightVisionGain.Value, 0f, 4f)
-            : GetLowLightGain();
-        var lowLightBlend = Mathf.Clamp01(visionGain / 1.5f);
-        var bodycamBloom = _settings.HighlightBloomStrength.Value;
-        var strength = nightVision
-            ? bodycamBloom * 1.4f
-            : Mathf.Lerp(bodycamBloom, bodycamBloom * 0.6f, lowLightBlend);
-        if (!_settings.ModEnabled.Value || !_settings.BodyCameraEnabled.Value || strength <= 0.001f)
+        TrackDepthOfField(depthOfField);
+        var strength = NearWeaponBlurStrength;
+        var aiming = _player?.ProceduralWeaponAnimation?.IsAiming == true;
+        if (!_settings.ModEnabled.Value
+            || !_settings.BodyCameraEnabled.Value
+            || aiming
+            || strength <= 0.001f)
         {
-            RestoreBloom(false);
+            RestoreDepthOfField(false);
             return;
         }
 
-        bloom.active = true;
-        bloom.enabled.value = true;
-        bloom.intensity.value = strength;
-        bloom.threshold.value = nightVision ? 0.9f : Mathf.Lerp(1.2f, 1.35f, lowLightBlend);
-        bloom.softKnee.value = 0.45f;
-        bloom.diffusion.value = Mathf.Lerp(4.2f, 3.8f, lowLightBlend);
-        bloom.fastMode.value = true;
+        depthOfField.active = true;
+        depthOfField.enabled.value = true;
+        depthOfField.focusDistance.value = 8f;
+        depthOfField.aperture.value = Mathf.Lerp(16f, 3.5f, strength);
+        depthOfField.focalLength.value = Mathf.Lerp(18f, 32f, strength);
+        depthOfField.kernelSize.value = KernelSize.Small;
     }
 
     private void ApplyMotionBlur(PostProcessLayer postProcessLayer)
@@ -738,8 +519,8 @@ internal sealed class BodyCameraController
 
         motionBlur.active = true;
         motionBlur.enabled.value = true;
-        motionBlur.shutterAngle.value = Mathf.Lerp(0f, 90f, strength);
-        motionBlur.sampleCount.value = Mathf.RoundToInt(Mathf.Lerp(6f, 10f, strength));
+        motionBlur.shutterAngle.value = Mathf.Lerp(0f, 180f, strength);
+        motionBlur.sampleCount.value = Mathf.RoundToInt(Mathf.Lerp(6f, 14f, strength));
     }
 
     private void ApplyGrain(PostProcessLayer postProcessLayer)
@@ -752,15 +533,8 @@ internal sealed class BodyCameraController
 
         TrackGrain(grain);
         var nightVision = _settings.NightVisionEnabled.Value;
-        var visionNoise = 0f;
-        if (nightVision)
-        {
-            visionNoise = Mathf.Clamp01(_settings.NightVisionNoiseStrength.Value);
-        }
-        else if (_settings.LowLightModeEnabled.Value)
-        {
-            visionNoise = Mathf.Clamp01(_settings.LowLightNoiseStrength.Value);
-        }
+        var visionNoise = nightVision ? NightVisionNoise
+            : _settings.LowLightModeEnabled.Value ? LowLightNoise : 0f;
         var intensity = Mathf.Clamp01(_settings.SensorNoiseStrength.Value * 0.55f + visionNoise * 0.7f);
         if (!_settings.ModEnabled.Value || !_settings.BodyCameraEnabled.Value || intensity <= 0.001f)
         {
@@ -786,15 +560,13 @@ internal sealed class BodyCameraController
 
         TrackColorGrading(colorGrading);
         var nightVision = _settings.NightVisionEnabled.Value;
-        var visionGain = nightVision
-            ? Mathf.Clamp(_settings.NightVisionGain.Value, 0f, 4f)
-            : GetLowLightGain();
+        var visionGain = nightVision ? NightVisionGain : GetLowLightGain();
         var lowLightBlend = Mathf.Clamp01(visionGain / 1.5f);
         var gainBlend = Mathf.Clamp01(visionGain / 4f);
-        var exposure = _settings.CameraExposure.Value + visionGain * (nightVision ? 0.18f : 0.1f);
+        var exposure = visionGain * (nightVision ? 0.18f : 0.1f);
         if (!_settings.ModEnabled.Value
             || !_settings.BodyCameraEnabled.Value
-            || (Mathf.Abs(exposure) <= 0.001f && lowLightBlend <= 0.001f && !nightVision))
+            || (Mathf.Abs(exposure) <= 0.001f && !nightVision))
         {
             RestoreColorGrading(false);
             return;
@@ -818,7 +590,7 @@ internal sealed class BodyCameraController
             return 0f;
         }
 
-        return Mathf.Clamp(_settings.LowLightGain.Value, 0f, 4f);
+        return LowLightGain;
     }
 
     private void TrackLensDistortion(LensDistortion lensDistortion)
@@ -936,40 +708,38 @@ internal sealed class BodyCameraController
         }
     }
 
-    private void TrackBloom(Bloom bloom)
+    private void TrackDepthOfField(DepthOfField depthOfField)
     {
-        if (ReferenceEquals(_bloom, bloom))
+        if (ReferenceEquals(_depthOfField, depthOfField))
         {
             return;
         }
 
-        RestoreBloom(true);
-        _bloom = bloom;
-        _bloomWasActive = bloom.active;
-        _bloomWasEnabled = bloom.enabled.value;
-        _bloomIntensity = bloom.intensity.value;
-        _bloomThreshold = bloom.threshold.value;
-        _bloomSoftKnee = bloom.softKnee.value;
-        _bloomDiffusion = bloom.diffusion.value;
-        _bloomFastMode = bloom.fastMode.value;
+        RestoreDepthOfField(true);
+        _depthOfField = depthOfField;
+        _depthOfFieldWasActive = depthOfField.active;
+        _depthOfFieldWasEnabled = depthOfField.enabled.value;
+        _depthOfFieldFocusDistance = depthOfField.focusDistance.value;
+        _depthOfFieldAperture = depthOfField.aperture.value;
+        _depthOfFieldFocalLength = depthOfField.focalLength.value;
+        _depthOfFieldKernelSize = depthOfField.kernelSize.value;
     }
 
-    private void RestoreBloom(bool forget)
+    private void RestoreDepthOfField(bool forget)
     {
-        if (_bloom != null)
+        if (_depthOfField != null)
         {
-            _bloom.active = _bloomWasActive;
-            _bloom.enabled.value = _bloomWasEnabled;
-            _bloom.intensity.value = _bloomIntensity;
-            _bloom.threshold.value = _bloomThreshold;
-            _bloom.softKnee.value = _bloomSoftKnee;
-            _bloom.diffusion.value = _bloomDiffusion;
-            _bloom.fastMode.value = _bloomFastMode;
+            _depthOfField.active = _depthOfFieldWasActive;
+            _depthOfField.enabled.value = _depthOfFieldWasEnabled;
+            _depthOfField.focusDistance.value = _depthOfFieldFocusDistance;
+            _depthOfField.aperture.value = _depthOfFieldAperture;
+            _depthOfField.focalLength.value = _depthOfFieldFocalLength;
+            _depthOfField.kernelSize.value = _depthOfFieldKernelSize;
         }
 
         if (forget)
         {
-            _bloom = null;
+            _depthOfField = null;
         }
     }
 
@@ -1076,15 +846,6 @@ internal sealed class BodyCameraController
         }
     }
 
-    private void BeginTracking(Player player, Camera camera)
-    {
-        Reset();
-        _player = player;
-        _camera = camera;
-        _nativeFieldOfView = camera.fieldOfView;
-        PrepareForActivation(camera.transform.rotation);
-    }
-
     private void UpdateFlashlight()
     {
         if (!_flashlightEnabled || _camera == null)
@@ -1128,48 +889,46 @@ internal sealed class BodyCameraController
         }
     }
 
-    private void UpdateNativeFieldOfView(PlayerCameraController cameraController)
-    {
-        var cameraManager = cameraController.CameraManager;
-        if (cameraManager != null && cameraManager.Fov > 1f && cameraManager.Fov < 179f)
-        {
-            _nativeFieldOfView = cameraManager.Fov;
-        }
-        else if (!_fieldOfViewOverridden && _camera != null)
-        {
-            _nativeFieldOfView = _camera.fieldOfView;
-        }
-    }
-
     private void ApplyFieldOfView()
     {
-        var aspect = _camera.aspect;
-        if (aspect <= 0.01f)
+        if (!_settings.WideFieldOfViewEnabled.Value || _camera == null || _camera.aspect <= 0.01f)
         {
             return;
         }
 
-        var horizontalFieldOfView = Mathf.Clamp(_settings.HorizontalFieldOfView.Value, 120f, 140f);
-        var horizontalRadians = horizontalFieldOfView * Mathf.Deg2Rad;
-        var verticalRadians = 2f * Mathf.Atan(Mathf.Tan(horizontalRadians * 0.5f) / aspect);
-        var bodycamFieldOfView = verticalRadians * Mathf.Rad2Deg;
-        _camera.fieldOfView = bodycamFieldOfView;
+        var horizontalFov = Mathf.Clamp(_settings.HorizontalFieldOfView.Value, 120f, 145f);
+        var horizontalRadians = horizontalFov * Mathf.Deg2Rad;
+        var verticalRadians = 2f * Mathf.Atan(Mathf.Tan(horizontalRadians * 0.5f) / _camera.aspect);
+        var verticalFov = verticalRadians * Mathf.Rad2Deg;
+        _camera.fieldOfView = verticalFov;
+        _cameraLodBias?.SetBiasByFov(verticalFov);
         _fieldOfViewOverridden = true;
     }
 
     private void RestoreFieldOfView()
     {
-        if (_fieldOfViewOverridden && _camera != null)
+        if (_fieldOfViewOverridden && _camera != null && _nativeFieldOfView > 1f)
         {
             _camera.fieldOfView = _nativeFieldOfView;
+            _cameraLodBias?.SetBiasByFov(_nativeFieldOfView);
         }
 
         _fieldOfViewOverridden = false;
     }
 
+    private void BeginTracking(Player player, Camera camera, CameraManager cameraManager)
+    {
+        Reset();
+        _player = player;
+        _camera = camera;
+        _cameraLodBias = camera.GetComponent<CameraLodBiasController>();
+        var nativeFov = cameraManager?.Fov ?? 0f;
+        _nativeFieldOfView = nativeFov > 1f && nativeFov < 179f ? nativeFov : camera.fieldOfView;
+        PrepareForActivation(camera.transform.rotation);
+    }
+
     private void PrepareForActivation(Quaternion baseRotation)
     {
-        RestoreWeaponVisualKick();
         _followRotation = baseRotation;
         _followAngularVelocity = Vector3.zero;
         _hasFollowRotation = true;
@@ -1191,18 +950,6 @@ internal sealed class BodyCameraController
         _hasInertiaSample = false;
         _shotRotation = Vector3.zero;
         _shotRotationVelocity = Vector3.zero;
-        _shotPosition = Vector3.zero;
-        _shotPositionVelocity = Vector3.zero;
-        _weaponShotRotation = Vector3.zero;
-        _weaponShotRotationVelocity = Vector3.zero;
-        _coverResponse = 0f;
-        _coverResponseVelocity = 0f;
-        _lastCoverProbeFrame = -100;
-        _previousTargetRotation = baseRotation;
-        _hasTargetRotationSample = true;
-        _turnRotation = Vector3.zero;
-        _turnRotationVelocity = Vector3.zero;
-        _smoothedTurnVelocity = Vector3.zero;
     }
 
     private void UpdateRotationSpring(Quaternion targetRotation, float deltaTime)
@@ -1216,7 +963,6 @@ internal sealed class BodyCameraController
         }
 
         var cameraWeight = _settings.CameraWeight.Value;
-        UpdateTurnResponse(targetRotation, cameraWeight, deltaTime);
         if (cameraWeight <= 0.001f)
         {
             _followRotation = targetRotation;
@@ -1224,10 +970,9 @@ internal sealed class BodyCameraController
             return;
         }
 
-        var weightedResponse = Mathf.Pow(cameraWeight, 0.75f);
-        var angularFrequency = Mathf.Lerp(28f, 3.3f, weightedResponse);
-        var damping = Mathf.Lerp(1.05f, 0.96f, weightedResponse);
-        var maximumLag = 30f * weightedResponse;
+        var angularFrequency = Mathf.Lerp(28f, 6.4f, cameraWeight);
+        var damping = Mathf.Lerp(1.05f, 0.82f, cameraWeight);
+        var maximumLag = 22f * cameraWeight;
         var remainingTime = deltaTime;
         while (remainingTime > 0f)
         {
@@ -1250,7 +995,7 @@ internal sealed class BodyCameraController
             var angularAcceleration = error * (angularFrequency * angularFrequency)
                 - _followAngularVelocity * (2f * damping * angularFrequency);
             _followAngularVelocity += angularAcceleration * step;
-            _followAngularVelocity = Vector3.ClampMagnitude(_followAngularVelocity, 9f);
+            _followAngularVelocity = Vector3.ClampMagnitude(_followAngularVelocity, 12f);
 
             var rotationStep = _followAngularVelocity * step;
             var rotationStepAngle = rotationStep.magnitude;
@@ -1266,60 +1011,6 @@ internal sealed class BodyCameraController
         {
             _followRotation = Quaternion.RotateTowards(targetRotation, _followRotation, maximumLag);
         }
-    }
-
-    private void UpdateTurnResponse(Quaternion targetRotation, float cameraWeight, float deltaTime)
-    {
-        if (cameraWeight <= 0.001f)
-        {
-            _previousTargetRotation = targetRotation;
-            _hasTargetRotationSample = true;
-            _smoothedTurnVelocity = Vector3.zero;
-            _turnRotation = Vector3.zero;
-            _turnRotationVelocity = Vector3.zero;
-            return;
-        }
-
-        if (!_hasTargetRotationSample)
-        {
-            _previousTargetRotation = targetRotation;
-            _hasTargetRotationSample = true;
-            return;
-        }
-
-        var rotationDelta = Quaternion.Inverse(_previousTargetRotation) * targetRotation;
-        rotationDelta.ToAngleAxis(out var angle, out var axis);
-        if (angle > 180f)
-        {
-            angle -= 360f;
-        }
-
-        var angularVelocity = Vector3.zero;
-        if (Mathf.Abs(angle) > 0.0001f && axis.sqrMagnitude > 0.0001f)
-        {
-            angularVelocity = axis.normalized * (angle / Mathf.Max(deltaTime, 0.001f));
-        }
-
-        _previousTargetRotation = targetRotation;
-        var velocitySmoothing = 1f - Mathf.Exp(-14f * deltaTime);
-        _smoothedTurnVelocity = Vector3.Lerp(
-            _smoothedTurnVelocity,
-            angularVelocity,
-            velocitySmoothing);
-
-        var targetTurnRotation = new Vector3(
-            Mathf.Clamp(-_smoothedTurnVelocity.x * 0.009f, -1.2f, 1.2f),
-            Mathf.Clamp(-_smoothedTurnVelocity.y * 0.0035f, -0.7f, 0.7f),
-            Mathf.Clamp(-_smoothedTurnVelocity.y * 0.028f, -6f, 6f))
-            * cameraWeight;
-
-        _turnRotation = Vector3.SmoothDamp(
-            _turnRotation,
-            targetTurnRotation,
-            ref _turnRotationVelocity,
-            0.15f,
-            Mathf.Infinity,
-            deltaTime);
     }
 
     private Vector3 GetStabilizedMountPosition(
@@ -1340,9 +1031,7 @@ internal sealed class BodyCameraController
                 + playerTransform.TransformVector(_stabilizedMountOffset);
         }
 
-        var cameraWeight = _settings.CameraWeight.Value;
-        var horizontalFollowSpeed = Mathf.Lerp(12f, 5.5f, cameraWeight);
-        var horizontalSmoothing = 1f - Mathf.Exp(-horizontalFollowSpeed * deltaTime);
+        var horizontalSmoothing = 1f - Mathf.Exp(-10f * deltaTime);
         _stabilizedMountOffset.x = Mathf.Lerp(
             _stabilizedMountOffset.x,
             mountOffset.x,
@@ -1354,15 +1043,17 @@ internal sealed class BodyCameraController
 
         var horizontalVelocity = velocity;
         horizontalVelocity.y = 0f;
+        var verticalDifference = mountOffset.y - _stabilizedMountOffset.y;
         var isMoving = horizontalVelocity.sqrMagnitude > 0.0225f;
-        var verticalFollowSpeed = isMoving
-            ? Mathf.Lerp(7f, 3.2f, cameraWeight)
-            : 10f;
-        var verticalSmoothing = 1f - Mathf.Exp(-verticalFollowSpeed * deltaTime);
-        _stabilizedMountOffset.y = Mathf.Lerp(
-            _stabilizedMountOffset.y,
-            mountOffset.y,
-            verticalSmoothing);
+        if (!isMoving || Mathf.Abs(verticalDifference) > 0.06f)
+        {
+            var verticalFollowSpeed = isMoving ? 3f : 10f;
+            var verticalSmoothing = 1f - Mathf.Exp(-verticalFollowSpeed * deltaTime);
+            _stabilizedMountOffset.y = Mathf.Lerp(
+                _stabilizedMountOffset.y,
+                mountOffset.y,
+                verticalSmoothing);
+        }
 
         return vanillaCameraPosition
             + playerTransform.TransformVector(_stabilizedMountOffset);
@@ -1381,7 +1072,7 @@ internal sealed class BodyCameraController
             _movementNoiseTime += deltaTime * (0.85f + speed * 0.42f);
             var localVelocity = Quaternion.Inverse(baseRotation) * horizontalVelocity;
             var strafe = Mathf.Clamp(localVelocity.x / 5f, -1f, 1f);
-            var strength = _settings.MovementIntensity.Value * 2f * speedFactor;
+            var strength = _settings.MovementIntensity.Value * 1.8f * speedFactor;
 
             var lateralNoise = SignedPerlin(13.7f, _movementNoiseTime * 0.93f);
             var verticalNoise = SignedPerlin(29.1f, _movementNoiseTime * 1.27f);
@@ -1390,12 +1081,12 @@ internal sealed class BodyCameraController
             var yawNoise = SignedPerlin(79.4f, _movementNoiseTime * 0.83f);
             var rollNoise = SignedPerlin(97.8f, _movementNoiseTime * 0.67f);
 
-            targetPosition.x = lateralNoise * 0.0032f * strength;
+            targetPosition.x = lateralNoise * 0.0022f * strength;
             targetPosition.y = verticalNoise * 0.00035f * strength;
-            targetPosition.z = forwardNoise * 0.0018f * strength;
-            targetRotation.x = pitchNoise * 0.38f * strength;
-            targetRotation.y = yawNoise * 0.3f * strength;
-            targetRotation.z = (rollNoise * 0.32f - strafe * 0.14f) * strength;
+            targetPosition.z = forwardNoise * 0.0011f * strength;
+            targetRotation.x = pitchNoise * 0.22f * strength;
+            targetRotation.y = yawNoise * 0.15f * strength;
+            targetRotation.z = (rollNoise * 0.58f - strafe * 0.22f) * strength;
 
             var movementAmount = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.35f, 2.4f, speed));
             var runAmount = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(3.3f, 6f, speed));
@@ -1403,9 +1094,7 @@ internal sealed class BodyCameraController
                 0f,
                 1f,
                 Mathf.InverseLerp(0.5f, 2f, Mathf.Abs(velocity.y)));
-            var cadenceVariation = 1f
-                + SignedPerlin(131.7f, _movementNoiseTime * 0.31f) * 0.09f;
-            var strideFrequency = Mathf.Lerp(1.65f, 2.75f, runAmount) * cadenceVariation;
+            var strideFrequency = Mathf.Lerp(1.55f, 2.55f, runAmount);
             _gaitPhase += deltaTime * strideFrequency * Mathf.PI * 2f;
             if (_gaitPhase > Mathf.PI * 2000f)
             {
@@ -1417,37 +1106,16 @@ internal sealed class BodyCameraController
                 * movementAmount
                 * verticalMovement
                 * gaitVariation;
-            var stepWave = Mathf.Sin(_gaitPhase);
-            var stepImpact = Mathf.Pow(Mathf.Clamp01(stepWave), 4f);
-            var stepSide = Mathf.Sign(Mathf.Sin(_gaitPhase * 0.5f));
-            var stepVariation = 1f
-                + SignedPerlin(149.3f, _movementNoiseTime * 0.47f) * 0.18f;
-            var stepStrength = gaitStrength * stepVariation;
+            var verticalStep = Mathf.Sin(_gaitPhase);
+            var alternatingStep = Mathf.Sin(_gaitPhase * 0.5f);
 
-            targetPosition.x += stepSide
-                * stepImpact
-                * Mathf.Lerp(0.0012f, 0.0024f, runAmount)
-                * stepStrength;
-            targetPosition.y -= stepImpact
-                * Mathf.Lerp(0.0018f, 0.004f, runAmount)
-                * stepStrength;
-            targetPosition.z += stepImpact
-                * Mathf.Lerp(0.0007f, 0.0015f, runAmount)
-                * stepStrength;
-            targetRotation.x += stepImpact
-                * Mathf.Lerp(0.42f, 0.8f, runAmount)
-                * stepStrength;
-            targetRotation.y += stepSide
-                * stepImpact
-                * Mathf.Lerp(0.16f, 0.34f, runAmount)
-                * stepStrength;
-            targetRotation.z += stepSide
-                * stepImpact
-                * Mathf.Lerp(0.32f, 0.64f, runAmount)
-                * stepStrength;
+            targetPosition.x += alternatingStep * Mathf.Lerp(0.00045f, 0.0009f, runAmount) * gaitStrength;
+            targetPosition.y += verticalStep * Mathf.Lerp(0.0018f, 0.0034f, runAmount) * gaitStrength;
+            targetRotation.x += -verticalStep * Mathf.Lerp(0.12f, 0.24f, runAmount) * gaitStrength;
+            targetRotation.z += alternatingStep * Mathf.Lerp(0.16f, 0.34f, runAmount) * gaitStrength;
         }
 
-        var smoothing = 1f - Mathf.Exp(-10f * deltaTime);
+        var smoothing = 1f - Mathf.Exp(-8.5f * deltaTime);
         _movementPosition = Vector3.Lerp(_movementPosition, targetPosition, smoothing);
         _movementRotation = Vector3.Lerp(_movementRotation, targetRotation, smoothing);
     }
@@ -1459,29 +1127,13 @@ internal sealed class BodyCameraController
 
     private void UpdateShotKick(float deltaTime)
     {
-        var remainingTime = deltaTime;
-        while (remainingTime > 0f)
-        {
-            var step = Mathf.Min(remainingTime, 1f / 120f);
-            remainingTime -= step;
-
-            _shotRotationVelocity += (-_shotRotation * 18f * 18f - _shotRotationVelocity * 16f) * step;
-            _shotRotation += _shotRotationVelocity * step;
-            _shotRotation.x = Mathf.Clamp(_shotRotation.x, -6f, 1f);
-            _shotRotation.y = Mathf.Clamp(_shotRotation.y, -2.5f, 2.5f);
-            _shotRotation.z = Mathf.Clamp(_shotRotation.z, -2.5f, 2.5f);
-
-            _shotPositionVelocity += (-_shotPosition * 22f * 22f - _shotPositionVelocity * 20f) * step;
-            _shotPosition += _shotPositionVelocity * step;
-            _shotPosition.z = Mathf.Clamp(_shotPosition.z, -0.04f, 0.01f);
-
-            _weaponShotRotationVelocity += (-_weaponShotRotation * 22f * 22f
-                - _weaponShotRotationVelocity * 19f) * step;
-            _weaponShotRotation += _weaponShotRotationVelocity * step;
-            _weaponShotRotation.x = Mathf.Clamp(_weaponShotRotation.x, -10f, 2f);
-            _weaponShotRotation.y = Mathf.Clamp(_weaponShotRotation.y, -2f, 2f);
-            _weaponShotRotation.z = Mathf.Clamp(_weaponShotRotation.z, -3f, 3f);
-        }
+        _shotRotation = Vector3.SmoothDamp(
+            _shotRotation,
+            Vector3.zero,
+            ref _shotRotationVelocity,
+            0.11f,
+            Mathf.Infinity,
+            deltaTime);
     }
 
     private void UpdateMotionInertia(Quaternion baseRotation, Vector3 velocity, float deltaTime)
@@ -1507,7 +1159,7 @@ internal sealed class BodyCameraController
             _hasInertiaSample = true;
         }
 
-        var velocitySmoothing = 1f - Mathf.Exp(-8f * deltaTime);
+        var velocitySmoothing = 1f - Mathf.Exp(-10f * deltaTime);
         _smoothedLocalVelocity = Vector3.Lerp(_smoothedLocalVelocity, localVelocity, velocitySmoothing);
         var localAcceleration = (_smoothedLocalVelocity - _previousSmoothedLocalVelocity)
             / Mathf.Max(deltaTime, 0.001f);
@@ -1517,32 +1169,27 @@ internal sealed class BodyCameraController
 
         var strength = _settings.MovementIntensity.Value;
         var targetPosition = new Vector3(
-            Mathf.Clamp(-localAcceleration.x * 0.0011f, -0.025f, 0.025f),
+            Mathf.Clamp(-localAcceleration.x * 0.00055f, -0.018f, 0.018f),
             0f,
-            Mathf.Clamp(-localAcceleration.z * 0.0012f, -0.03f, 0.03f)) * strength;
+            Mathf.Clamp(-localAcceleration.z * 0.00075f, -0.020f, 0.020f)) * strength;
         var targetRotation = new Vector3(
-            Mathf.Clamp(localAcceleration.z * 0.08f, -3.2f, 3.2f),
-            Mathf.Clamp(-localAcceleration.x * 0.04f, -2.4f, 2.4f),
-            Mathf.Clamp(localAcceleration.x * 0.11f, -3f, 3f)) * strength;
+            Mathf.Clamp(localAcceleration.z * 0.055f, -2.5f, 2.5f),
+            Mathf.Clamp(-localAcceleration.x * 0.022f, -3.0f, 3.0f),
+            Mathf.Clamp(localAcceleration.x * 0.070f, -1.8f, 1.8f)) * strength;
 
-        var positionResponse = targetPosition.sqrMagnitude > _inertiaPosition.sqrMagnitude
-            ? 0.075f
-            : 0.2f;
-        var rotationResponse = targetRotation.sqrMagnitude > _inertiaRotation.sqrMagnitude
-            ? 0.085f
-            : 0.22f;
+        const float response = 0.12f;
         _inertiaPosition = Vector3.SmoothDamp(
             _inertiaPosition,
             targetPosition,
             ref _inertiaPositionVelocity,
-            positionResponse,
+            response,
             Mathf.Infinity,
             deltaTime);
         _inertiaRotation = Vector3.SmoothDamp(
             _inertiaRotation,
             targetRotation,
             ref _inertiaRotationVelocity,
-            rotationResponse,
+            response,
             Mathf.Infinity,
             deltaTime);
     }

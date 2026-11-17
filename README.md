@@ -1,44 +1,35 @@
-# ⚠️ IMPORTANT NOTE ⚠️
-My mods will no longer be available on The Forge.
-Under The Forge's rules, mods that aren't released there aren't supported.
-This means that if you run into an issue that might be related to one of my mods, you may be denied support or advised to remove the mod.
-If you experience any issues with my mods, please join my [Discord](https://discord.gg/PD5TPQFKpa) for support.
+# SENZE Bodycam
 
+My mods are no longer available on The Forge. For support, please use my [Discord](https://discord.gg/PD5TPQFKpa). The Forge may not provide support for mods released elsewhere.
 
-# ABOUT BODYCAM
-The idea came from the game of the same name, “Bodycam.” 
-This is my version and my take on creating a similar experience for SPT.
-If you have a fast-paced playstyle like one of those Giga-Chad streamers for example, then this mod might not be for you, since it alters or slows down your movement.
-With “Bodycam,” you'll need to play a little more tactically/different. 
+SENZE Bodycam adds a body mounted first person camera and a recording overlay to SPT 4.1.6.
 
-This mod is highly customizable, so you can tailor the experience to your preferences.
-I recommend using the default settings here. That's because they're designed to provide the best possible experience (in my opinion). 
-For a more immersive experience, I recommend turning off Tarkov's original HUD completely.
+## Installation
 
-**SPT version:** `~4.1.6`  
-**Dependencies:** none  
-**FIKA compatible:** unknown  
-**Recommendations:** [Fontaine's FOV Fix](https://sp-mod.com/mod/701/fontaines-fov-fix)  
-**Incompatibilities:** None that I know of
+Extract the release archive into the SPT installation folder. It contains the client plugin under `BepInEx/plugins` and the server mod under `SPT_Runtime/user/mods`.
 
+- **SPT version:** 4.1.6
+- **Required mods:** none
+- **Optional integration:** SENZE Extreme Weather 1.3.12. Nearby or strong lightning can briefly interfere with the bodycam image when Extreme Weather's Bodycam interference setting is enabled.
+- **FIKA compatibility:** not verified
 
-# DETAILS
-- Slight camera shake while walking
-- Severe camera shake while running
-- Slight automatic peeking while approaching corners
-- Slight smudges/streaks on the camera lens (similar to a visor)
-- Chromatic aberration, blurriness, and vignetting at the edges of the screen
-- The lens shatters upon being hit
-- Censorship for enemies. Because privacy is important these days.
-- Minimalistic HUD
+## Features
 
+- Body mounted camera with configurable position, camera weight, movement response, and visual shot reaction. The shot reaction does not change weapon recoil.
+- Adjustable horizontal FOV from 120 to 145 degrees, including while aiming.
+- Barrel shaped lens distortion, edge crop, chromatic aberration, motion blur, vignette, lens smears, sensor noise, and damage marks.
+- Minimal recording HUD with operator name, raid date and time, SENZE logo, and magazine check label.
+- Low Light and Night Vision modes cycled with F9.
+- Weak, wide bodycam flashlight toggled with H.
+- Optional face and eye mosaic.
+- F10 toggles the bodycam. Most visual and camera settings can be changed in the BepInEx F12 menu.
 
-# BUG REPORTS
-If you encounter a bug or experience any issues with my mods, please include the following information in your report:
+## Notes
 
-- **Description:** What happened, and what were you doing when the issue occurred?
-- **BepInEx logs**
-- **Server logs**
-- **Screenshots or video recordings**, if available
+The bodycam flashlight and Night Vision are supporting tools. They are not intended to replace tactical lights or dedicated night vision equipment.
 
-Please submit your bug reports in the dedicated channel [on my Discord server](https://discord.com/channels/1551226098354753576/1563209498108366998).
+Extreme Weather is optional. Without it, Bodycam works normally; lightning interference is simply unavailable. The integration needs a matching installed Extreme Weather client plugin and has not yet been verified in a live raid for this release.
+
+## Bug reports
+
+Please include a description of the problem, BepInEx and server logs, and screenshots or video if available. You can report issues on [Discord](https://discord.gg/PD5TPQFKpa).
